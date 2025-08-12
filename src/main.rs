@@ -73,7 +73,7 @@ fn game_loop() {
                 current_cell = game_of_life.get_cell(i, j);
 
                 current_color = match current_cell {
-                    Cell::Alive => Color::LEMONCHIFFON,
+                    Cell::Alive => Color::GOLD,
                     Cell::Dead => Color::DARKBLUE,
                 };
 
@@ -110,7 +110,7 @@ fn game_loop() {
         {
             //draw_handle.clear_background(Color::WHITE);
 
-            draw_handle.draw_texture(&texture, 0, 0, Color::GRAY);
+            draw_handle.draw_texture(&texture, 0, 0, Color::LIGHTGRAY);
 
             //draw_handle.draw_circle_v(mouse_position, 40.0, Color::INDIANRED);
 
