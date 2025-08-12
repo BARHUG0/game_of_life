@@ -35,11 +35,7 @@ fn game_loop() {
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
-    let mut framebuffer = Framebuffer::new(
-        FREMEBUFFER_WIDTH,
-        FRAMEBUFFER_HEIGHT,
-        Color::new(50, 50, 100, 255),
-    );
+    let mut framebuffer = Framebuffer::new(FREMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT, Color::WHITE);
 
     let mut game_of_life = Matrix::new(MATRIX_WIDTH, MATRIX_HEIGHT);
 
@@ -77,8 +73,8 @@ fn game_loop() {
                 current_cell = game_of_life.get_cell(i, j);
 
                 current_color = match current_cell {
-                    Cell::Alive => Color::GREENYELLOW,
-                    Cell::Dead => Color::BLUEVIOLET,
+                    Cell::Alive => Color::LEMONCHIFFON,
+                    Cell::Dead => Color::DARKBLUE,
                 };
 
                 framebuffer.set_foreground_color(current_color);
@@ -112,9 +108,9 @@ fn game_loop() {
 
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
-            draw_handle.clear_background(Color::WHITE);
+            //draw_handle.clear_background(Color::WHITE);
 
-            draw_handle.draw_texture(&texture, 0, 0, Color::WHITE);
+            draw_handle.draw_texture(&texture, 0, 0, Color::GRAY);
 
             //draw_handle.draw_circle_v(mouse_position, 40.0, Color::INDIANRED);
 
