@@ -1,9 +1,9 @@
 mod conway;
 mod framebuffer;
 
-use raylib::ffi::Vector2;
+use rand::Rng;
 use raylib::prelude::*;
-use std::fmt;
+
 use std::thread;
 use std::time::Duration;
 
@@ -11,15 +11,15 @@ use conway::Cell;
 use conway::Matrix;
 use framebuffer::Framebuffer;
 
-const MATRIX_WIDTH: usize = 50;
-const MATRIX_HEIGHT: usize = 50;
+const MATRIX_WIDTH: usize = 300;
+const MATRIX_HEIGHT: usize = 150;
 
 const WINDOW_WIDTH: i32 = 1600;
 const WINDOW_HEIGHT: i32 = 800;
 
 const FREMEBUFFER_WIDTH: i32 = 1600;
 const FRAMEBUFFER_HEIGHT: i32 = 800;
-const MATRIX_CELL_SCALLING_FACTOR: usize = 12;
+const MATRIX_CELL_SCALLING_FACTOR: usize = 5;
 
 fn main() {
     game_loop();
@@ -41,8 +41,25 @@ fn game_loop() {
     let mut game_of_life = Matrix::new(MATRIX_WIDTH, MATRIX_HEIGHT);
 
     //Initial values
-    for i in 20..=30 {
-        game_of_life.set_cell(i, 25, Cell::Alive);
+    //for i in 20..=30 {
+    //    game_of_life.set_cell(i, 25, Cell::Alive);
+    //}
+    //
+    let mut rng = rand::rng();
+
+    for i in 0..MATRIX_WIDTH {
+        for j in 0..MATRIX_HEIGHT {
+            let random_number = rng.random_range(0..100);
+            game_of_life.set_cell(
+                i,
+                j,
+                if random_number < 25 {
+                    Cell::Dead
+                } else {
+                    Cell::Alive
+                },
+            );
+        }
     }
 
     while !&handle.window_should_close() {
@@ -103,7 +120,7 @@ fn game_loop() {
 
         game_of_life = game_of_life.calculate_next_generation();
 
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(Duration::from_millis(125));
     }
 }
 
