@@ -83,8 +83,8 @@ fn game_loop() {
             }
         }
 
-        let mouse_position: raylib::prelude::Vector2 = handle.get_mouse_position();
-        let rectangle = Rectangle::new(85.0, 70.0, 250.0, 100.0);
+        //let mouse_position: raylib::prelude::Vector2 = handle.get_mouse_position();
+        //let rectangle = Rectangle::new(85.0, 70.0, 250.0, 100.0);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
@@ -96,9 +96,9 @@ fn game_loop() {
 
             draw_handle.draw_texture(&texture, 0, 0, Color::WHITE);
 
-            draw_handle.draw_circle_v(mouse_position, 40.0, Color::INDIANRED);
+            //draw_handle.draw_circle_v(mouse_position, 40.0, Color::INDIANRED);
 
-            draw_handle.gui_button(rectangle, "Hello Word");
+            //draw_handle.gui_button(rectangle, "Hello Word");
         }
 
         game_of_life = game_of_life.calculate_next_generation();
