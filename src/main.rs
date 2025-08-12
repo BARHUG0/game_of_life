@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 mod conway;
 mod framebuffer;
 
@@ -11,15 +13,15 @@ use conway::Cell;
 use conway::Matrix;
 use framebuffer::Framebuffer;
 
-const MATRIX_WIDTH: usize = 300;
-const MATRIX_HEIGHT: usize = 150;
+const MATRIX_WIDTH: usize = WINDOW_WIDTH as usize;
+const MATRIX_HEIGHT: usize = WINDOW_HEIGHT as usize;
 
-const WINDOW_WIDTH: i32 = 1600;
-const WINDOW_HEIGHT: i32 = 800;
+const WINDOW_WIDTH: i32 = 1900;
+const WINDOW_HEIGHT: i32 = 1000;
 
-const FREMEBUFFER_WIDTH: i32 = 1600;
-const FRAMEBUFFER_HEIGHT: i32 = 800;
-const MATRIX_CELL_SCALLING_FACTOR: usize = 5;
+const FREMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
+const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
+const MATRIX_CELL_SCALLING_FACTOR: usize = 1;
 
 fn main() {
     game_loop();
@@ -27,6 +29,7 @@ fn main() {
 
 fn game_loop() {
     let (mut handle, raylib_thread) = raylib::init()
+        .undecorated()
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
         .title("raylib")
         .log_level(TraceLogLevel::LOG_WARNING)
