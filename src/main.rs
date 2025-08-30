@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use framebuffer::Framebuffer;
 
+use camera::Camera;
 use material::Material;
-use raytracer::{Sphere, render};
+use raytracer::{Sphere, render, render_with_camera};
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -40,18 +41,36 @@ fn game_loop() {
     framebuffer.set_background_color(Color::new(80, 80, 200, 255));
 
     let objects = [
-        Sphere::new(
-            Vector3::new(0.0, 0.0, -3.0),
-            1.0,
-            Material::new(Color::GREENYELLOW),
-        ),
-        Sphere::new(Vector3::new(0.0, 0.0, -5.0), 2.5, Material::new(Color::RED)),
+        Sphere::new(Vector3::new(1.0, 0.0, -4.0), 1.0, Material::IVORY()),
+        Sphere::new(Vector3::new(2.0, 0.0, -5.0), 1.0, Material::RUBBER()),
+        Sphere::new(Vector3::new(0.0, 0.0, 0.0), 1.0, Material::RUBBER()),
     ];
+
+    let mut camera = Camera::new(
+        Vector3::new(0.0, 0.0, 10.0),
+        Vector3::new(0.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+    );
+
+    let rotation_speed = PI as f32 / 100.0;
 
     while !&handle.window_should_close() {
         framebuffer.clear();
 
-        //render(&mut framebuffer, &objects);
+        if handle.is_key_down(KeyboardKey::KEY_LEFT) {
+            camera.orbit(rotation_speed, 0.0);
+        }
+        if handle.is_key_down(KeyboardKey::KEY_RIGHT) {
+            camera.orbit(-rotation_speed, 0.0);
+        }
+        if handle.is_key_down(KeyboardKey::KEY_UP) {
+            camera.orbit(0.0, -rotation_speed);
+        }
+        if handle.is_key_down(KeyboardKey::KEY_DOWN) {
+            camera.orbit(0.0, rotation_speed);
+        }
+
+        render_with_camera(&mut framebuffer, &objects, &camera);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)

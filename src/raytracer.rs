@@ -124,7 +124,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
     }
 }
 
-pub fn render_with_camera(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: Camera) {
+pub fn render_with_camera(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera) {
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
 
