@@ -46,6 +46,16 @@ fn game_loop() {
         Sphere::new(Vector3::new(0.0, 0.0, 0.0), 1.0, Material::RUBBER()),
     ];
 
+    let snowman = [
+        Sphere::new(Vector3::new(0.0, -2.0, -8.0), 2.0, Material::IVORY()), // bottom
+        Sphere::new(Vector3::new(0.0, 1.0, -8.0), 1.4, Material::IVORY()),  // middle
+        Sphere::new(Vector3::new(0.0, 3.2, -8.0), 1.0, Material::IVORY()),  // head
+        Sphere::new(Vector3::new(-0.35, 3.4, -7.2), 0.15, Material::RUBBER()), // left eye
+        Sphere::new(Vector3::new(0.35, 3.4, -7.2), 0.15, Material::RUBBER()), // right eye
+        Sphere::new(Vector3::new(0.0, 1.5, -6.8), 0.18, Material::RUBBER()), // top button
+        Sphere::new(Vector3::new(0.0, 1.0, -6.7), 0.18, Material::RUBBER()), // middle button
+        Sphere::new(Vector3::new(0.0, 0.5, -6.8), 0.18, Material::RUBBER()), // bottom button
+    ];
     let mut camera = Camera::new(
         Vector3::new(0.0, 0.0, 10.0),
         Vector3::new(0.0, 0.0, 0.0),
@@ -70,7 +80,7 @@ fn game_loop() {
             camera.orbit(0.0, rotation_speed);
         }
 
-        render_with_camera(&mut framebuffer, &objects, &camera);
+        render_with_camera(&mut framebuffer, &snowman, &camera);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
