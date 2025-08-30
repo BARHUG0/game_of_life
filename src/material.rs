@@ -14,3 +14,17 @@ impl Material {
         self.diffuse_color
     }
 }
+
+impl Material {
+    pub fn RUBBER() -> Self {
+        Material {
+            diffuse_color: Color::new(80, 0, 0, 255),
+        }
+    }
+
+    pub fn IVORY() -> Self {
+        Material {
+            diffuse_color: Color::new(100, 100, 80, 255),
+        }
+    }
+}
