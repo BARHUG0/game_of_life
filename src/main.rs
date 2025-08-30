@@ -1,5 +1,6 @@
 #![allow(warnings)]
 
+mod camera;
 mod conway;
 mod framebuffer;
 mod raytracer;
@@ -38,11 +39,11 @@ fn game_loop() {
 
     let objects = [
         Sphere::new(
-            Vector3::new(-2.0, 0.0, -5.0),
+            Vector3::new(0.0, 0.0, -3.0),
             1.0,
             Material::new(Color::GREENYELLOW),
         ),
-        Sphere::new(Vector3::new(2.0, 0.0, -5.0), 1.5, Material::new(Color::RED)),
+        Sphere::new(Vector3::new(0.0, 0.0, -5.0), 2.5, Material::new(Color::RED)),
     ];
 
     while !&handle.window_should_close() {
