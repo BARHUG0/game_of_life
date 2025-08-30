@@ -36,11 +36,14 @@ fn game_loop() {
 
     framebuffer.set_background_color(Color::new(80, 80, 200, 255));
 
-    let objects = [Sphere::new(
-        Vector3::new(0.0, 0.0, -5.0),
-        1.0,
-        Material::new(Color::BLUEVIOLET),
-    )];
+    let objects = [
+        Sphere::new(
+            Vector3::new(-2.0, 0.0, -5.0),
+            1.0,
+            Material::new(Color::GREENYELLOW),
+        ),
+        Sphere::new(Vector3::new(2.0, 0.0, -5.0), 1.5, Material::new(Color::RED)),
+    ];
 
     while !&handle.window_should_close() {
         framebuffer.clear();
@@ -55,7 +58,5 @@ fn game_loop() {
         {
             draw_handle.draw_texture(&texture, 0, 0, Color::WHITE);
         }
-
-        //        thread::sleep(Duration::from_millis(125));
     }
 }

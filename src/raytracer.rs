@@ -105,7 +105,7 @@ pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, objects: &[Sphere
     for object in objects {
         let intersection = object.ray_intersect(ray_origin, ray_direction);
         if intersection.is_intersecting {
-            return Color::new(157, 165, 189, 255);
+            return intersection.material.diffuse_color;
         }
     }
     Color::new(4, 12, 36, 255)
