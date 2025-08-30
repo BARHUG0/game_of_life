@@ -3,6 +3,7 @@
 mod camera;
 mod conway;
 mod framebuffer;
+mod material;
 mod raytracer;
 
 use rand::Rng;
@@ -13,7 +14,8 @@ use std::time::Duration;
 
 use framebuffer::Framebuffer;
 
-use raytracer::{Material, Sphere, render};
+use material::Material;
+use raytracer::{Sphere, render};
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -49,7 +51,7 @@ fn game_loop() {
     while !&handle.window_should_close() {
         framebuffer.clear();
 
-        render(&mut framebuffer, &objects);
+        //render(&mut framebuffer, &objects);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)

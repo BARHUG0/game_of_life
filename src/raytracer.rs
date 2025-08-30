@@ -1,6 +1,7 @@
 use std::{f32, mem::zeroed};
 
 use crate::camera::Camera;
+use crate::material::Material;
 use crate::{Framebuffer, framebuffer};
 use raylib::prelude::*;
 
@@ -59,21 +60,6 @@ impl RayIntersect for Sphere {
         };
 
         Intersect::new(self.material, is_intersecting, distance)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct Material {
-    pub diffuse_color: Color,
-}
-
-impl Material {
-    pub fn new(diffuse_color: Color) -> Self {
-        Material { diffuse_color }
-    }
-
-    pub fn diffuse_color(&self) -> Color {
-        self.diffuse_color
     }
 }
 
