@@ -9,6 +9,179 @@ pub trait RayIntersect {
     fn ray_intersect(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Intersect;
 }
 
+pub struct Cube {
+    pub min: Vector3,
+    pub max: Vector3,
+    pub materials: [Material; 6], // +X, -X, +Y, -Y, +Z, -Z
+}
+
+impl Cube {
+    pub fn new(min: Vector3, max: Vector3, materials: [Material; 6]) -> Self {
+        Cube {
+            min,
+            max,
+            materials,
+        }
+    }
+}
+
+impl RayIntersect for Cube {
+    fn ray_intersect(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Intersect {
+        let mut tmin = f32::NEG_INFINITY;
+        let mut tmax = f32::INFINITY;
+        let mut hit_face: Option<usize> = None;
+
+        // X axis
+        {
+            let origin = ray_origin.x;
+            let direction = ray_direction.x;
+            let min_val = self.min.x;
+            let max_val = self.max.x;
+
+            if direction.abs() < 1e-6 {
+                if origin < min_val || origin > max_val {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            } else {
+                let inv_d = 1.0 / direction;
+                let mut t1 = (min_val - origin) * inv_d;
+                let mut t2 = (max_val - origin) * inv_d;
+
+                let face_in;
+                if t1 > t2 {
+                    std::mem::swap(&mut t1, &mut t2);
+                    face_in = 1; // -X
+                } else {
+                    face_in = 0; // +X
+                }
+
+                if t1 > tmin {
+                    tmin = t1;
+                    hit_face = Some(face_in);
+                }
+                if t2 < tmax {
+                    tmax = t2;
+                }
+                if tmin > tmax {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            }
+        }
+
+        // Y axis
+        {
+            let origin = ray_origin.y;
+            let direction = ray_direction.y;
+            let min_val = self.min.y;
+            let max_val = self.max.y;
+
+            if direction.abs() < 1e-6 {
+                if origin < min_val || origin > max_val {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            } else {
+                let inv_d = 1.0 / direction;
+                let mut t1 = (min_val - origin) * inv_d;
+                let mut t2 = (max_val - origin) * inv_d;
+
+                let face_in;
+                if t1 > t2 {
+                    std::mem::swap(&mut t1, &mut t2);
+                    face_in = 3; // -Y
+                } else {
+                    face_in = 2; // +Y
+                }
+
+                if t1 > tmin {
+                    tmin = t1;
+                    hit_face = Some(face_in);
+                }
+                if t2 < tmax {
+                    tmax = t2;
+                }
+                if tmin > tmax {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            }
+        }
+
+        // Z axis
+        {
+            let origin = ray_origin.z;
+            let direction = ray_direction.z;
+            let min_val = self.min.z;
+            let max_val = self.max.z;
+
+            if direction.abs() < 1e-6 {
+                if origin < min_val || origin > max_val {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            } else {
+                let inv_d = 1.0 / direction;
+                let mut t1 = (min_val - origin) * inv_d;
+                let mut t2 = (max_val - origin) * inv_d;
+
+                let face_in;
+                if t1 > t2 {
+                    std::mem::swap(&mut t1, &mut t2);
+                    face_in = 5; // -Z
+                } else {
+                    face_in = 4; // +Z
+                }
+
+                if t1 > tmin {
+                    tmin = t1;
+                    hit_face = Some(face_in);
+                }
+                if t2 < tmax {
+                    tmax = t2;
+                }
+                if tmin > tmax {
+                    return Intersect {
+                        material: self.materials[0],
+                        is_intersecting: false,
+                        distance: f32::INFINITY,
+                    };
+                }
+            }
+        }
+
+        if tmin < 0.0 {
+            return Intersect {
+                material: self.materials[0],
+                is_intersecting: false,
+                distance: f32::INFINITY,
+            };
+        }
+
+        Intersect {
+            material: self.materials[hit_face.unwrap_or(0)],
+            is_intersecting: true,
+            distance: tmin,
+        }
+    }
+}
+
 pub struct Sphere {
     center: Vector3,
     radius: f32,
@@ -102,6 +275,7 @@ impl Intersect {
     }
 }
 
+/*
 pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
@@ -123,8 +297,9 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Sphere]) {
         }
     }
 }
+*/
 
-pub fn render_with_camera(framebuffer: &mut Framebuffer, objects: &[Sphere], camera: &Camera) {
+pub fn render_with_camera(framebuffer: &mut Framebuffer, objects: &[Cube], camera: &Camera) {
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
 
@@ -152,7 +327,7 @@ pub fn render_with_camera(framebuffer: &mut Framebuffer, objects: &[Sphere], cam
     }
 }
 
-pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, objects: &[Sphere]) -> Color {
+pub fn cast_ray(ray_origin: &Vector3, ray_direction: &Vector3, objects: &[Cube]) -> Color {
     let mut intersection = Intersect::empty();
 
     let mut zbuffer = f32::INFINITY;

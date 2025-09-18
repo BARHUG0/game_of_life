@@ -16,7 +16,7 @@ use framebuffer::Framebuffer;
 
 use camera::Camera;
 use material::Material;
-use raytracer::{Sphere, render, render_with_camera};
+use raytracer::{Cube, Sphere, render_with_camera};
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -56,6 +56,22 @@ fn game_loop() {
         Sphere::new(Vector3::new(0.0, 1.0, -6.7), 0.18, Material::RUBBER()), // middle button
         Sphere::new(Vector3::new(0.0, 0.5, -6.8), 0.18, Material::RUBBER()), // bottom button
     ];
+
+    let cube = Cube::new(
+        Vector3::new(-1.0, -1.0, -1.0),
+        Vector3::new(1.0, 1.0, 1.0),
+        [
+            Material::new(Color::RED),    // +X
+            Material::new(Color::BLUE),   // -X
+            Material::new(Color::GREEN),  // +Y
+            Material::new(Color::YELLOW), // -Y
+            Material::new(Color::ORANGE), // +Z
+            Material::new(Color::PURPLE), // -Z
+        ],
+    );
+
+    let cubes = [cube];
+
     let mut camera = Camera::new(
         Vector3::new(0.0, 0.0, 10.0),
         Vector3::new(0.0, 0.0, 0.0),
@@ -80,7 +96,7 @@ fn game_loop() {
             camera.orbit(0.0, rotation_speed);
         }
 
-        render_with_camera(&mut framebuffer, &snowman, &camera);
+        render_with_camera(&mut framebuffer, &cubes, &camera);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
