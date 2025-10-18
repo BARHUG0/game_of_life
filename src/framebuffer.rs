@@ -1,3 +1,5 @@
+use std::f32;
+
 use raylib::prelude::*;
 
 pub struct Framebuffer {
@@ -6,17 +8,20 @@ pub struct Framebuffer {
     height: i32,
     foreground_color: Color,
     background_color: Color,
+    depth_buffer: Vec<f32>,
 }
 
 impl Framebuffer {
     pub fn new(width: i32, height: i32, background_color: Color) -> Self {
         let color_buffer = Image::gen_image_color(width, height, background_color);
+        let depth_buffer = vec![f32::INFINITY, (width * height) as f32];
         Framebuffer {
             width,
             height,
             color_buffer,
             background_color,
             foreground_color: Color::WHITE,
+            depth_buffer,
         }
     }
 
@@ -30,6 +35,8 @@ impl Framebuffer {
 
     pub fn clear(&mut self) {
         self.color_buffer = Image::gen_image_color(self.width, self.height, self.background_color);
+        //self.depth_buffer = vec![f32::INFINITY; (self.width * self.height) as usize];
+        self.depth_buffer.fill(f32::INFINITY);
     }
 
     pub fn set_foreground_color(&mut self, color: Color) {
