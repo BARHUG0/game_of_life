@@ -18,11 +18,10 @@ pub fn load_maze(filename: &str, block_size: usize) -> (Maze, Vector2) {
         let mut row: Vec<char> = Vec::new();
         for (col_index, ch) in line.expect("Error reading line").chars().enumerate() {
             if ch == 'p' {
-                // Center the player in the block
                 let x = (col_index * block_size + block_size / 2) as f32;
                 let y = (row_index * block_size + block_size / 2) as f32;
                 player_pos = Some(Vector2 { x, y });
-                row.push(' '); // Replace with empty space
+                row.push(' ');
             } else {
                 row.push(ch);
             }
