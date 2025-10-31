@@ -5,6 +5,7 @@ mod command;
 mod controls;
 mod fog_of_war;
 mod framebuffer;
+mod game_state;
 mod maze;
 mod maze_generator;
 mod player;
@@ -13,6 +14,7 @@ mod raycaster;
 mod renderer;
 mod sprite;
 mod sprite_renderer;
+mod ui_renderer;
 mod wall_renderer;
 
 use rand::Rng;
@@ -25,12 +27,14 @@ use command::PlayerCommand;
 use controls::process_input;
 use fog_of_war::FogOfWar;
 use framebuffer::Framebuffer;
+use game_state::GameState;
 use maze_generator::generate_large_maze;
 use player::Player;
 use raycaster::{cast_rays, cast_single_ray};
 use renderer::Renderer;
-use sprite::spawn_sprites_in_maze;
+use sprite::{process_pickups, spawn_sprites_in_maze};
 use sprite_renderer::SpriteRenderer;
+use ui_renderer::UIRenderer;
 use wall_renderer::WallRenderer;
 
 const WINDOW_WIDTH: i32 = 1900;
@@ -59,6 +63,11 @@ fn game_loop() {
     let (maze, player_pos) = generate_large_maze(block_size);
     let mut player = Player::new(player_pos, 0.0);
 
+    // Game state for tracking pickups
+    let mut game_state = GameState::new();
+    let mut pickup_message = String::new();
+    let mut message_timer = 0.0;
+
     // Spawn more sprites now that the algorithm is improved
     let num_sprites = 25;
     let mut sprites = spawn_sprites_in_maze(&maze, block_size, num_sprites);
@@ -76,14 +85,31 @@ fn game_loop() {
     let sprite_textures = load_sprite_textures(&mut handle, &raylib_thread);
     let sprite_renderer = SpriteRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, sprite_textures);
 
+    let ui_renderer = UIRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, 100);
+
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
     let minimap_y = 20;
 
     while !&handle.window_should_close() {
+        let delta_time = handle.get_frame_time();
+
         let commands = process_input(&handle);
         for command in commands {
             player.execute_command(command, &maze, block_size);
+        }
+
+        // Process pickups
+        let collected = process_pickups(&mut sprites, player.x(), player.y());
+        for pickup in collected {
+            let message = game_state.collect_pickup(pickup);
+            pickup_message = message;
+            message_timer = 2.0; // Show message for 2 seconds
+        }
+
+        // Update message timer
+        if message_timer > 0.0 {
+            message_timer -= delta_time;
         }
 
         framebuffer.clear();
@@ -127,6 +153,8 @@ fn game_loop() {
             block_size,
         );
 
+        ui_renderer.render_hud(&mut framebuffer, &game_state);
+
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
             .expect("The texture loaded from the color buffer should be valid");
@@ -134,6 +162,16 @@ fn game_loop() {
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
             draw_handle.draw_texture(&texture, 0, 0, Color::LIGHTGRAY);
+
+            // Draw UI elements
+            draw_handle.draw_text(&game_state.format_stats(), 10, 10, 20, Color::WHITE);
+
+            // Draw pickup message if active
+            if message_timer > 0.0 {
+                let msg_x = WINDOW_WIDTH / 2 - 100;
+                let msg_y = WINDOW_HEIGHT - 100;
+                draw_handle.draw_text(&pickup_message, msg_x, msg_y, 30, Color::YELLOW);
+            }
         }
     }
 }
@@ -153,6 +191,7 @@ fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -
 
 fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
     vec![
+        // Decorations (0-3)
         Image::load_image("assets/sprite_barrel.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::BROWN)),
         Image::load_image("assets/sprite_pillar.png")
@@ -161,5 +200,14 @@ fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::YELLOW)),
         Image::load_image("assets/sprite_plant.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GREEN)),
+        // Pickups (4-7)
+        Image::load_image("assets/pickup_health.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
+        Image::load_image("assets/pickup_ammo.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::ORANGE)),
+        Image::load_image("assets/pickup_key.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GOLD)),
+        Image::load_image("assets/pickup_treasure.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::SKYBLUE)),
     ]
 }

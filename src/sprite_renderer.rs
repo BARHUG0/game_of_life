@@ -14,6 +14,7 @@ struct SpriteProjection {
     sprite_height: f32,
     sprite_width: f32,
     sprite_index: usize,
+    transform_y: f32, // Store the camera-space Y for better depth testing
 }
 
 pub struct SpriteRenderer {
@@ -113,24 +114,32 @@ impl SpriteRenderer {
         let sprite_x = sprite.x() - player.x();
         let sprite_y = sprite.y() - player.y();
 
-        // Transform to camera space (rotate by player's view angle)
-        let inv_det = 1.0
-            / (player.angle_of_view().cos() * player.angle_of_view().sin()
-                - (-player.angle_of_view().sin()) * player.angle_of_view().cos());
+        // Camera direction and plane vectors
+        let dir_x = player.angle_of_view().cos();
+        let dir_y = player.angle_of_view().sin();
 
-        let transform_x = inv_det
-            * (player.angle_of_view().sin() * sprite_x - player.angle_of_view().cos() * sprite_y);
-        let transform_y = inv_det
-            * (-(-player.angle_of_view().sin()) * sprite_x
-                + player.angle_of_view().cos() * sprite_y);
+        // Camera plane (perpendicular to direction, scaled for FOV)
+        let plane_x = -dir_y * 0.66; // 0.66 gives ~60 degree FOV
+        let plane_y = dir_x * 0.66;
 
-        // Sprite is behind player
-        if transform_y <= 0.1 {
+        // Transform sprite position to camera space
+        let inv_det = 1.0 / (plane_x * dir_y - dir_x * plane_y);
+
+        let transform_x = inv_det * (dir_y * sprite_x - dir_x * sprite_y);
+        let transform_y = inv_det * (-plane_y * sprite_x + plane_x * sprite_y);
+
+        // Sprite is behind player or too close
+        if transform_y <= 0.5 {
             return None;
         }
 
         // Calculate screen X position
         let screen_x = (self.screen_width as f32 / 2.0) * (1.0 + transform_x / transform_y);
+
+        // Sprite is off screen horizontally (with margin)
+        if screen_x < -100.0 || screen_x > self.screen_width as f32 + 100.0 {
+            return None;
+        }
 
         // Calculate sprite height on screen
         let sprite_height =
@@ -145,6 +154,7 @@ impl SpriteRenderer {
             sprite_height,
             sprite_width,
             sprite_index: sprite.texture_index(),
+            transform_y,
         })
     }
 
@@ -173,27 +183,35 @@ impl SpriteRenderer {
         let draw_start_y = draw_start_y.max(0);
         let draw_end_y = draw_end_y.min(self.screen_height);
 
+        // Skip if completely off screen
+        if draw_start_x >= self.screen_width || draw_end_x <= 0 {
+            return;
+        }
+
         let texture = &self.texture_data[projection.sprite_index];
 
         // Draw sprite column by column
         for screen_x in draw_start_x..draw_end_x {
             // Depth test: check if sprite is closer than wall at this column
-            let ray_index =
-                (screen_x as f32 / self.screen_width as f32 * rays.len() as f32) as usize;
-            if ray_index >= rays.len() {
-                continue;
-            }
+            // Map screen X to ray index with proper bounds checking
+            let ray_index = ((screen_x as f32 / self.screen_width as f32) * rays.len() as f32)
+                .max(0.0)
+                .min((rays.len() - 1) as f32) as usize;
 
-            if projection.distance >= rays[ray_index].distance() {
+            // Use perpendicular distance for proper depth comparison
+            // Add small epsilon to avoid z-fighting
+            if projection.transform_y >= rays[ray_index].distance() + 1.0 {
                 continue; // Wall is closer, skip this column
             }
 
             // Calculate texture X coordinate
-            let tex_x = ((screen_x as f32 - (projection.screen_x - projection.sprite_width / 2.0))
-                * self.texture_width as f32
-                / projection.sprite_width) as i32;
+            let d = screen_x as f32 - (projection.screen_x - projection.sprite_width / 2.0);
+            let tex_x = (d * self.texture_width as f32 / projection.sprite_width) as i32;
 
-            let tex_x = tex_x.clamp(0, self.texture_width - 1);
+            // Clamp texture coordinates
+            if tex_x < 0 || tex_x >= self.texture_width {
+                continue;
+            }
 
             // Draw sprite column
             for screen_y in draw_start_y..draw_end_y {
@@ -203,7 +221,10 @@ impl SpriteRenderer {
                 let tex_y =
                     (d as f32 * self.texture_height as f32 / projection.sprite_height) as i32;
 
-                let tex_y = tex_y.clamp(0, self.texture_height - 1);
+                // Clamp texture Y
+                if tex_y < 0 || tex_y >= self.texture_height {
+                    continue;
+                }
 
                 // Sample texture
                 let row = &texture[tex_y as usize];
@@ -215,7 +236,7 @@ impl SpriteRenderer {
                 let a = row[x_offset + 3];
 
                 // Skip transparent pixels (color key or alpha)
-                // Common Wolfenstein color key: cyan (0, 255, 255)
+                // Wolfenstein color key: cyan (0, 255, 255) or low alpha
                 if (r == 0 && g == 255 && b == 255) || a < 128 {
                     continue;
                 }
