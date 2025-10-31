@@ -17,7 +17,7 @@ impl GameState {
         GameState {
             health: 100,
             max_health: 100,
-            ammo: 50,
+            ammo: 200,
             keys: 0,
             treasure: 0,
             score: 0,
@@ -92,6 +92,10 @@ impl GameState {
             "Health: {}/{} | Ammo: {} | Keys: {} | Treasure: {} | Score: {}",
             self.health, self.max_health, self.ammo, self.keys, self.treasure, self.score
         )
+    }
+
+    pub fn use_ammo(&mut self, amount: i32) {
+        self.ammo = (self.ammo - amount).max(0);
     }
 }
 

@@ -25,10 +25,22 @@ pub struct SpriteRenderer {
     texture_width: i32,
     texture_height: i32,
     texture_data: Vec<Vec<Vec<u8>>>,
+
+    // Separate enemy textures
+    enemy_textures: Vec<Image>,
+    enemy_texture_width: i32,
+    enemy_texture_height: i32,
+    enemy_texture_data: Vec<Vec<Vec<u8>>>,
 }
 
 impl SpriteRenderer {
-    pub fn new(screen_width: i32, screen_height: i32, mut textures: Vec<Image>) -> Self {
+    pub fn new(
+        screen_width: i32,
+        screen_height: i32,
+        mut textures: Vec<Image>,
+        mut enemy_textures: Vec<Image>,
+    ) -> Self {
+        // Process sprite textures
         let texture_width = if !textures.is_empty() {
             textures[0].width
         } else {
@@ -58,6 +70,36 @@ impl SpriteRenderer {
             texture_data.push(tex_pixels);
         }
 
+        // Process enemy textures
+        let enemy_texture_width = if !enemy_textures.is_empty() {
+            enemy_textures[0].width
+        } else {
+            64
+        };
+
+        let enemy_texture_height = if !enemy_textures.is_empty() {
+            enemy_textures[0].height
+        } else {
+            64
+        };
+
+        let mut enemy_texture_data = Vec::new();
+        for texture in &mut enemy_textures {
+            let mut tex_pixels = Vec::new();
+            for y in 0..texture.height {
+                let mut row = Vec::new();
+                for x in 0..texture.width {
+                    let color = texture.get_color(x, y);
+                    row.push(color.r);
+                    row.push(color.g);
+                    row.push(color.b);
+                    row.push(color.a);
+                }
+                tex_pixels.push(row);
+            }
+            enemy_texture_data.push(tex_pixels);
+        }
+
         SpriteRenderer {
             screen_width,
             screen_height,
@@ -65,6 +107,10 @@ impl SpriteRenderer {
             texture_width,
             texture_height,
             texture_data,
+            enemy_textures,
+            enemy_texture_width,
+            enemy_texture_height,
+            enemy_texture_data,
         }
     }
 
@@ -228,22 +274,24 @@ impl SpriteRenderer {
             return;
         }
 
-        let mut projections: Vec<SpriteProjection> = enemies
+        let mut projections: Vec<(SpriteProjection, bool)> = enemies
             .iter()
-            .filter(|e| e.is_alive())
+            .filter(|e| e.is_alive() || e.state() == crate::enemy::EnemyState::Dead)
             .filter_map(|enemy| {
                 let position = enemy.position();
                 let texture_index = enemy.texture_index();
                 let scale = enemy.scale();
+                let is_flashing = enemy.is_flashing();
 
                 self.project_at_position(position, texture_index, scale, player, block_size)
+                    .map(|proj| (proj, is_flashing))
             })
             .collect();
 
-        projections.sort_by(|a, b| b.distance.partial_cmp(&a.distance).unwrap());
+        projections.sort_by(|a, b| b.0.distance.partial_cmp(&a.0.distance).unwrap());
 
-        for projection in projections {
-            self.render_projection_direct(framebuffer, &projection, rays);
+        for (projection, is_flashing) in projections {
+            self.render_enemy_projection(framebuffer, &projection, rays, is_flashing);
         }
     }
 
@@ -293,13 +341,14 @@ impl SpriteRenderer {
         })
     }
 
-    fn render_projection_direct(
+    fn render_enemy_projection(
         &self,
         framebuffer: &mut Framebuffer,
         projection: &SpriteProjection,
         rays: &[Ray],
+        is_flashing: bool,
     ) {
-        if projection.sprite_index >= self.texture_data.len() {
+        if projection.sprite_index >= self.enemy_texture_data.len() {
             return;
         }
 
@@ -318,7 +367,7 @@ impl SpriteRenderer {
             return;
         }
 
-        let texture = &self.texture_data[projection.sprite_index];
+        let texture = &self.enemy_texture_data[projection.sprite_index];
 
         for screen_x in draw_start_x..draw_end_x {
             let ray_index = ((screen_x as f32 / self.screen_width as f32) * rays.len() as f32)
@@ -330,9 +379,9 @@ impl SpriteRenderer {
             }
 
             let d = screen_x as f32 - (projection.screen_x - projection.sprite_width / 2.0);
-            let tex_x = (d * self.texture_width as f32 / projection.sprite_width) as i32;
+            let tex_x = (d * self.enemy_texture_width as f32 / projection.sprite_width) as i32;
 
-            if tex_x < 0 || tex_x >= self.texture_width {
+            if tex_x < 0 || tex_x >= self.enemy_texture_width {
                 continue;
             }
 
@@ -340,22 +389,29 @@ impl SpriteRenderer {
                 let d = screen_y
                     - (self.screen_height as f32 / 2.0 - projection.sprite_height / 2.0) as i32;
                 let tex_y =
-                    (d as f32 * self.texture_height as f32 / projection.sprite_height) as i32;
+                    (d as f32 * self.enemy_texture_height as f32 / projection.sprite_height) as i32;
 
-                if tex_y < 0 || tex_y >= self.texture_height {
+                if tex_y < 0 || tex_y >= self.enemy_texture_height {
                     continue;
                 }
 
                 let row = &texture[tex_y as usize];
                 let x_offset = (tex_x as usize * 4).min(row.len().saturating_sub(4));
 
-                let r = row[x_offset];
-                let g = row[x_offset + 1];
-                let b = row[x_offset + 2];
+                let mut r = row[x_offset];
+                let mut g = row[x_offset + 1];
+                let mut b = row[x_offset + 2];
                 let a = row[x_offset + 3];
 
                 if (r == 0 && g == 255 && b == 255) || a < 128 {
                     continue;
+                }
+
+                // Apply red tint if enemy is flashing from damage
+                if is_flashing {
+                    r = ((r as u16 * 2).min(255)) as u8;
+                    g = (g / 2) as u8;
+                    b = (b / 2) as u8;
                 }
 
                 let color = Color::new(r, g, b, a);

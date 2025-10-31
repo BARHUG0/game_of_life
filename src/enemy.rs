@@ -18,6 +18,95 @@ pub enum EnemyState {
     Dead,
 }
 
+/// Animation types
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AnimationType {
+    Walk,
+    Attack,
+    Death,
+}
+
+/// Animation state
+#[derive(Debug, Clone)]
+struct AnimationState {
+    current_type: AnimationType,
+    frame_index: usize,
+    frame_timer: f32,
+    frame_duration: f32,
+    num_frames: usize,
+    base_index: usize,
+    loop_animation: bool,
+    finished: bool,
+}
+
+impl AnimationState {
+    fn new(anim_type: AnimationType, frame_duration: f32) -> Self {
+        let (num_frames, base_index, loop_animation) = match anim_type {
+            AnimationType::Walk => (4, 0, true),   // Indices 0-3
+            AnimationType::Attack => (3, 4, true), // Indices 4-6
+            AnimationType::Death => (3, 7, false), // Indices 7-9, play once
+        };
+
+        AnimationState {
+            current_type: anim_type,
+            frame_index: 0,
+            frame_timer: 0.0,
+            frame_duration,
+            num_frames,
+            base_index,
+            loop_animation,
+            finished: false,
+        }
+    }
+
+    fn update(&mut self, delta_time: f32) {
+        if self.finished {
+            return;
+        }
+
+        self.frame_timer += delta_time;
+
+        if self.frame_timer >= self.frame_duration {
+            self.frame_timer = 0.0;
+            self.frame_index += 1;
+
+            if self.frame_index >= self.num_frames {
+                if self.loop_animation {
+                    self.frame_index = 0;
+                } else {
+                    // Non-looping animation finished, stay on last frame
+                    self.frame_index = self.num_frames - 1;
+                    self.finished = true;
+                }
+            }
+        }
+    }
+
+    fn set_animation(&mut self, anim_type: AnimationType) {
+        if self.current_type == anim_type && !self.finished {
+            return; // Already playing this animation
+        }
+
+        let (num_frames, base_index, loop_animation) = match anim_type {
+            AnimationType::Walk => (4, 0, true),
+            AnimationType::Attack => (3, 4, true),
+            AnimationType::Death => (3, 7, false),
+        };
+
+        self.current_type = anim_type;
+        self.frame_index = 0;
+        self.frame_timer = 0.0;
+        self.num_frames = num_frames;
+        self.base_index = base_index;
+        self.loop_animation = loop_animation;
+        self.finished = false;
+    }
+
+    fn current_texture_index(&self) -> usize {
+        self.base_index + self.frame_index
+    }
+}
+
 /// Represents an enemy in the game
 #[derive(Debug, Clone)]
 pub struct Enemy {
@@ -26,8 +115,14 @@ pub struct Enemy {
     state: EnemyState,
     health: i32,
     max_health: i32,
-    texture_index: usize,
     scale: f32,
+
+    // Animation
+    animation: AnimationState,
+
+    // Damage flash effect
+    damage_flash_timer: f32,
+    damage_flash_duration: f32,
 
     // Behavior properties
     detection_radius: f32,
@@ -43,15 +138,17 @@ pub struct Enemy {
 
 impl Enemy {
     /// Create a new rat enemy
-    pub fn new_rat(position: Vector2, texture_index: usize) -> Self {
+    pub fn new_rat(position: Vector2) -> Self {
         Enemy {
             position,
             enemy_type: EnemyType::Rat,
             state: EnemyState::Idle,
             health: 20,
             max_health: 20,
-            texture_index,
             scale: 0.7,
+            animation: AnimationState::new(AnimationType::Walk, 0.15),
+            damage_flash_timer: 0.0,
+            damage_flash_duration: 0.2, // Flash for 0.2 seconds
             detection_radius: 300.0,
             attack_range: 40.0,
             move_speed: 80.0,
@@ -84,7 +181,7 @@ impl Enemy {
     }
 
     pub fn texture_index(&self) -> usize {
-        self.texture_index
+        self.animation.current_texture_index()
     }
 
     pub fn scale(&self) -> f32 {
@@ -95,6 +192,11 @@ impl Enemy {
         self.health
     }
 
+    /// Check if enemy is taking damage (for red flash effect)
+    pub fn is_flashing(&self) -> bool {
+        self.damage_flash_timer > 0.0
+    }
+
     /// Update enemy behavior
     pub fn update(
         &mut self,
@@ -103,6 +205,14 @@ impl Enemy {
         maze: &crate::maze::Maze,
         block_size: usize,
     ) -> Option<i32> {
+        // Always update animation
+        self.animation.update(delta_time);
+
+        // Update damage flash timer
+        if self.damage_flash_timer > 0.0 {
+            self.damage_flash_timer -= delta_time;
+        }
+
         if !self.is_alive() {
             return None;
         }
@@ -123,16 +233,20 @@ impl Enemy {
         // State machine
         match self.state {
             EnemyState::Idle => {
+                self.animation.set_animation(AnimationType::Walk);
+
                 // Check if player is within detection radius
                 if distance_to_player < self.detection_radius {
-                    // Simple line-of-sight check (can see player through walls for now)
                     self.state = EnemyState::Chase;
                 }
             }
             EnemyState::Chase => {
+                self.animation.set_animation(AnimationType::Walk);
+
                 // Check if in attack range
                 if distance_to_player < self.attack_range {
                     self.state = EnemyState::Attack;
+                    self.animation.set_animation(AnimationType::Attack);
                 } else if distance_to_player > self.detection_radius * 1.5 {
                     // Lost player
                     self.state = EnemyState::Idle;
@@ -142,18 +256,25 @@ impl Enemy {
                 }
             }
             EnemyState::Attack => {
+                self.animation.set_animation(AnimationType::Attack);
+
                 // Check if player moved away
                 if distance_to_player > self.attack_range * 1.2 {
                     self.state = EnemyState::Chase;
                 } else {
-                    // Attack if cooldown is ready
+                    // Attack if cooldown is ready and attack animation is at damage frame
                     if self.attack_timer <= 0.0 {
-                        self.attack_timer = self.attack_cooldown;
-                        return Some(self.attack_damage); // Return damage dealt
+                        // Deal damage when attack animation reaches frame 1 (middle of attack)
+                        if self.animation.frame_index == 1 {
+                            self.attack_timer = self.attack_cooldown;
+                            return Some(self.attack_damage); // Return damage dealt
+                        }
                     }
                 }
             }
-            EnemyState::Dead => {}
+            EnemyState::Dead => {
+                self.animation.set_animation(AnimationType::Death);
+            }
         }
 
         None
@@ -205,9 +326,12 @@ impl Enemy {
         }
 
         self.health -= damage;
+        self.damage_flash_timer = self.damage_flash_duration; // Start flash effect
+
         if self.health <= 0 {
             self.health = 0;
             self.state = EnemyState::Dead;
+            self.animation.set_animation(AnimationType::Death);
             return true; // Enemy died
         }
 
@@ -228,7 +352,6 @@ pub fn spawn_enemies(
     block_size: usize,
     player_pos: Vector2,
     num_enemies: usize,
-    rat_texture_index: usize,
 ) -> Vec<Enemy> {
     let mut enemies = Vec::new();
     let mut rng = rand::rng();
@@ -275,10 +398,7 @@ pub fn spawn_enemies(
         });
 
         if !too_close {
-            enemies.push(Enemy::new_rat(
-                Vector2::new(world_x, world_y),
-                rat_texture_index,
-            ));
+            enemies.push(Enemy::new_rat(Vector2::new(world_x, world_y)));
         }
     }
 

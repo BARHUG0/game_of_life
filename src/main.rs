@@ -17,6 +17,8 @@ mod sprite;
 mod sprite_renderer;
 mod ui_renderer;
 mod wall_renderer;
+mod weapon;
+mod weapon_renderer;
 
 use rand::Rng;
 use raylib::prelude::*;
@@ -38,6 +40,8 @@ use sprite::{process_pickups, spawn_sprites_in_maze};
 use sprite_renderer::SpriteRenderer;
 use ui_renderer::UIRenderer;
 use wall_renderer::WallRenderer;
+use weapon::{ShotResult, Weapon};
+use weapon_renderer::WeaponRenderer;
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -48,7 +52,7 @@ const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
 const VIEWPORT_HEIGHT: i32 = WINDOW_HEIGHT - HUD_HEIGHT;
 
 // Game configuration
-const NUM_ENEMIES: usize = 5;
+const NUM_ENEMIES: usize = 30;
 
 fn main() {
     game_loop();
@@ -79,15 +83,7 @@ fn game_loop() {
     let num_sprites = 25;
     let mut sprites = spawn_sprites_in_maze(&maze, block_size, num_sprites);
 
-    // Spawn enemies (rat texture index = 8)
-    let rat_texture_index = 8;
-    let mut enemies = spawn_enemies(
-        &maze,
-        block_size,
-        player_pos,
-        NUM_ENEMIES,
-        rat_texture_index,
-    );
+    let mut enemies = spawn_enemies(&maze, block_size, player_pos, NUM_ENEMIES);
 
     let vision_radius = block_size as f32 * 4.0;
     let mut fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
@@ -98,9 +94,20 @@ fn game_loop() {
     let textures = load_wolfenstein_textures(&mut handle, &raylib_thread);
     let wall_renderer = WallRenderer::new(WINDOW_WIDTH, VIEWPORT_HEIGHT, textures);
 
-    // Load sprite textures
+    // Separate sprite textures from enemy textures
     let sprite_textures = load_sprite_textures(&mut handle, &raylib_thread);
-    let sprite_renderer = SpriteRenderer::new(WINDOW_WIDTH, VIEWPORT_HEIGHT, sprite_textures);
+    let enemy_textures = load_enemy_textures(&mut handle, &raylib_thread);
+    // Pass enemy textures to sprite renderer
+    let sprite_renderer = SpriteRenderer::new(
+        WINDOW_WIDTH,
+        VIEWPORT_HEIGHT,
+        sprite_textures,
+        enemy_textures, // New parameter
+    );
+
+    let weapon_textures = load_weapon_textures(&mut handle, &raylib_thread);
+    let weapon_renderer = WeaponRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, weapon_textures);
+    let mut weapon = Weapon::new_machine_gun();
 
     // Create UI renderer
     let ui_renderer = UIRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, HUD_HEIGHT);
@@ -112,10 +119,41 @@ fn game_loop() {
     while !&handle.window_should_close() {
         let delta_time = handle.get_frame_time();
 
-        let commands = process_input(&handle);
-        for command in commands {
+        let input = process_input(&handle);
+        for command in input.movement_commands {
             player.execute_command(command, &maze, block_size);
         }
+
+        if input.is_shooting {
+            if weapon.try_fire() {
+                // Raycast to check what we hit
+                if let Some(ray) = cast_single_ray(&player, &maze, block_size) {
+                    // Check if we hit any enemies
+                    for enemy in enemies.iter_mut() {
+                        if enemy.is_alive() {
+                            let dx = enemy.x() - player.x();
+                            let dy = enemy.y() - player.y();
+                            let angle_to_enemy = dy.atan2(dx);
+                            let angle_diff = (angle_to_enemy - player.angle_of_view()).abs();
+
+                            let distance = enemy.distance_to(player.x(), player.y());
+
+                            // Hit if enemy is close to crosshair and within range
+                            if angle_diff < 0.1 && distance < ray.distance() {
+                                enemy.take_damage(weapon.damage());
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                game_state.use_ammo(1);
+            }
+        } else {
+            weapon.stop_firing();
+        }
+
+        weapon.update(delta_time);
 
         // Update enemies and handle damage to player
         let damage_taken = update_enemies(
@@ -169,6 +207,8 @@ fn game_loop() {
 
         // Render enemies (AFTER sprites)
         sprite_renderer.render_enemies(&mut framebuffer, &enemies, &player, &rays, block_size);
+
+        weapon_renderer.render_weapon(&mut framebuffer, &weapon, HUD_HEIGHT);
 
         // Render HUD at the bottom
         ui_renderer.render_hud(&mut framebuffer, &game_state);
@@ -242,25 +282,65 @@ fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -
 fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
     vec![
         // Decorations (0-3)
-        Image::load_image("assets/sprite_barrel.png")
+        Image::load_image("assets/sprites/deco/barrel.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::BROWN)),
-        Image::load_image("assets/sprite_pillar.png")
+        Image::load_image("assets/sprites/deco/pillar.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
-        Image::load_image("assets/sprite_lamp.png")
+        Image::load_image("assets/sprites/deco/well.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::YELLOW)),
-        Image::load_image("assets/sprite_plant.png")
+        Image::load_image("assets/sprites/deco/plant.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GREEN)),
         // Pickups (4-7)
-        Image::load_image("assets/pickup_health.png")
+        Image::load_image("assets/sprites/pickups/health.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
-        Image::load_image("assets/pickup_ammo.png")
+        Image::load_image("assets/sprites/pickups/ammo.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::ORANGE)),
-        Image::load_image("assets/pickup_key.png")
+        Image::load_image("assets/sprites/pickups/key.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GOLD)),
-        Image::load_image("assets/pickup_treasure.png")
+        Image::load_image("assets/sprites/pickups/treasure.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::SKYBLUE)),
-        // Enemies (8+)
+    ]
+}
+
+fn load_enemy_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
+    vec![
+        // Rat walk animation (0-3)
         Image::load_image("assets/sprites/rat/walk_1.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
+        Image::load_image("assets/sprites/rat/walk_2.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
+        Image::load_image("assets/sprites/rat/walk_3.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
+        Image::load_image("assets/sprites/rat/walk_4.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
+        // Rat attack animation (4-6)
+        Image::load_image("assets/sprites/rat/attack_1.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
+        Image::load_image("assets/sprites/rat/attack_2.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
+        Image::load_image("assets/sprites/rat/attack_3.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
+        // Rat death animation (7-9)
+        Image::load_image("assets/sprites/rat/death_1.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
+        Image::load_image("assets/sprites/rat/death_2.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
+        Image::load_image("assets/sprites/rat/death_3.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
+    ]
+}
+
+fn load_weapon_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
+    vec![
+        // Machine gun idle (0)
+        Image::load_image("assets/sprites/machine_gun/idle.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKGRAY)),
+        // Machine gun firing frames (1-3)
+        Image::load_image("assets/sprites/machine_gun/shoot_1.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::ORANGE)),
+        Image::load_image("assets/sprites/machine_gun/shoot_2.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::YELLOW)),
+        Image::load_image("assets/sprites/machine_gun/shoot_3.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
     ]
 }
