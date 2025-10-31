@@ -11,6 +11,7 @@ mod player;
 mod ray;
 mod raycaster;
 mod renderer;
+mod wall_renderer;
 
 use rand::Rng;
 use raylib::prelude::*;
@@ -26,6 +27,7 @@ use maze_generator::generate_large_maze;
 use player::Player;
 use raycaster::{cast_rays, cast_single_ray};
 use renderer::Renderer;
+use wall_renderer::WallRenderer;
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -57,6 +59,7 @@ fn game_loop() {
     let mut fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
 
     let renderer = Renderer::new(block_size);
+    let wall_renderer = WallRenderer::new_untextured(WINDOW_WIDTH, WINDOW_HEIGHT);
 
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
@@ -67,13 +70,18 @@ fn game_loop() {
         for command in commands {
             player.execute_command(command, &maze, block_size);
         }
+        framebuffer.clear();
 
-        renderer.render_maze(&mut framebuffer, &maze);
+        wall_renderer.render_floor_ceiling(&mut framebuffer);
+        // renderer.render_maze(&mut framebuffer, &maze);
         renderer.render_player(&mut framebuffer, &player);
         // For multiple rays (full FOV)
         let fov = PI / 3.0; // 60 degrees
         let num_rays = 320; // One ray per column (for 3D view later)
         let rays = cast_rays(&player, &maze, block_size, fov, num_rays);
+
+        wall_renderer.render_3d_view(&mut framebuffer, &rays, &player, block_size);
+
         // Update fog of war with line-of-sight
         fog_of_war.update(&player, &rays, &maze);
 

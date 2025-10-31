@@ -14,8 +14,8 @@ pub enum PlayerCommand {
 
 impl PlayerCommand {
     // Constants for default movement values
-    pub const MOVE_SPEED: f32 = 0.5;
-    pub const ROTATION_SPEED: f32 = PI / 60.0;
+    pub const MOVE_SPEED: f32 = 7.0;
+    pub const ROTATION_SPEED: f32 = PI / 33.0;
 
     /// Create a forward movement command with default speed
     pub fn move_forward() -> Self {
