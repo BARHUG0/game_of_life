@@ -14,7 +14,7 @@ pub struct Framebuffer {
 impl Framebuffer {
     pub fn new(width: i32, height: i32, background_color: Color) -> Self {
         let color_buffer = Image::gen_image_color(width, height, background_color);
-        let depth_buffer = vec![f32::INFINITY, (width * height) as f32];
+        let depth_buffer = vec![f32::INFINITY; (width * height) as usize];
         Framebuffer {
             width,
             height,
@@ -35,7 +35,6 @@ impl Framebuffer {
 
     pub fn clear(&mut self) {
         self.color_buffer = Image::gen_image_color(self.width, self.height, self.background_color);
-        //self.depth_buffer = vec![f32::INFINITY; (self.width * self.height) as usize];
         self.depth_buffer.fill(f32::INFINITY);
     }
 
@@ -44,7 +43,7 @@ impl Framebuffer {
     }
 
     pub fn set_background_color(&mut self, color: Color) {
-        self.foreground_color = color;
+        self.background_color = color;
     }
 
     pub fn set_pixel(&mut self, x: i32, y: i32) {
@@ -58,5 +57,17 @@ impl Framebuffer {
 
     pub fn render_to_png(&self, filename: &str) {
         self.color_buffer.export_image(filename);
+    }
+
+    // Getter for depth value at specific coordinate
+    pub fn get_depth(&self, x: i32, y: i32) -> f32 {
+        let index = (y * self.width + x) as usize;
+        self.depth_buffer[index]
+    }
+
+    // Setter for depth value at specific coordinate
+    pub fn set_depth(&mut self, x: i32, y: i32, depth: f32) {
+        let index = (y * self.width + x) as usize;
+        self.depth_buffer[index] = depth;
     }
 }

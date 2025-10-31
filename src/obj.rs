@@ -30,7 +30,9 @@ impl Obj {
                     let nz = mesh.normals[i * 3 + 2];
                     Vector3::new(nx, ny, nz)
                 } else {
-                    Vector3::zero()
+                    // If no normals, calculate from position (for sphere, normal = normalized position)
+                    let len = (x * x + y * y + z * z).sqrt();
+                    Vector3::new(x / len, y / len, z / len)
                 };
 
                 let tex_coords = if !mesh.texcoords.is_empty() {
