@@ -3,6 +3,7 @@
 
 mod command;
 mod controls;
+mod enemy;
 mod fog_of_war;
 mod framebuffer;
 mod game_state;
@@ -25,6 +26,7 @@ use std::{f32::consts::PI, thread};
 
 use command::PlayerCommand;
 use controls::process_input;
+use enemy::{spawn_enemies, update_enemies};
 use fog_of_war::FogOfWar;
 use framebuffer::Framebuffer;
 use game_state::GameState;
@@ -39,9 +41,14 @@ use wall_renderer::WallRenderer;
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
+const HUD_HEIGHT: i32 = 100;
 
 const FREMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
 const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
+const VIEWPORT_HEIGHT: i32 = WINDOW_HEIGHT - HUD_HEIGHT;
+
+// Game configuration
+const NUM_ENEMIES: usize = 5;
 
 fn main() {
     game_loop();
@@ -68,9 +75,19 @@ fn game_loop() {
     let mut pickup_message = String::new();
     let mut message_timer = 0.0;
 
-    // Spawn more sprites now that the algorithm is improved
+    // Spawn sprites in the maze
     let num_sprites = 25;
     let mut sprites = spawn_sprites_in_maze(&maze, block_size, num_sprites);
+
+    // Spawn enemies (rat texture index = 8)
+    let rat_texture_index = 8;
+    let mut enemies = spawn_enemies(
+        &maze,
+        block_size,
+        player_pos,
+        NUM_ENEMIES,
+        rat_texture_index,
+    );
 
     let vision_radius = block_size as f32 * 4.0;
     let mut fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
@@ -79,13 +96,14 @@ fn game_loop() {
 
     // Load wall textures
     let textures = load_wolfenstein_textures(&mut handle, &raylib_thread);
-    let wall_renderer = WallRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, textures);
+    let wall_renderer = WallRenderer::new(WINDOW_WIDTH, VIEWPORT_HEIGHT, textures);
 
     // Load sprite textures
     let sprite_textures = load_sprite_textures(&mut handle, &raylib_thread);
-    let sprite_renderer = SpriteRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, sprite_textures);
+    let sprite_renderer = SpriteRenderer::new(WINDOW_WIDTH, VIEWPORT_HEIGHT, sprite_textures);
 
-    let ui_renderer = UIRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, 100);
+    // Create UI renderer
+    let ui_renderer = UIRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, HUD_HEIGHT);
 
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
@@ -99,12 +117,33 @@ fn game_loop() {
             player.execute_command(command, &maze, block_size);
         }
 
+        // Update enemies and handle damage to player
+        let damage_taken = update_enemies(
+            &mut enemies,
+            delta_time,
+            Vector2::new(player.x(), player.y()),
+            &maze,
+            block_size,
+        );
+
+        if damage_taken > 0 {
+            game_state.take_damage(damage_taken);
+            pickup_message = format!("-{} HP", damage_taken);
+            message_timer = 1.0;
+        }
+
+        // Check if player died
+        if game_state.is_dead() {
+            pickup_message = "GAME OVER".to_string();
+            message_timer = 999.0;
+        }
+
         // Process pickups
         let collected = process_pickups(&mut sprites, player.x(), player.y());
         for pickup in collected {
             let message = game_state.collect_pickup(pickup);
             pickup_message = message;
-            message_timer = 2.0; // Show message for 2 seconds
+            message_timer = 2.0;
         }
 
         // Update message timer
@@ -118,7 +157,7 @@ fn game_loop() {
         wall_renderer.render_floor_ceiling(&mut framebuffer);
 
         // Cast rays for raycasting
-        let fov = PI / 3.0; // 60 degrees
+        let fov = PI / 3.0;
         let num_rays = 320;
         let rays = cast_rays(&player, &maze, block_size, fov, num_rays);
 
@@ -127,6 +166,12 @@ fn game_loop() {
 
         // Render sprites (AFTER walls, with depth testing)
         sprite_renderer.render_sprites(&mut framebuffer, &sprites, &player, &rays, block_size);
+
+        // Render enemies (AFTER sprites)
+        sprite_renderer.render_enemies(&mut framebuffer, &enemies, &player, &rays, block_size);
+
+        // Render HUD at the bottom
+        ui_renderer.render_hud(&mut framebuffer, &game_state);
 
         // Update fog of war
         fog_of_war.update(&player, &rays, &maze);
@@ -153,7 +198,15 @@ fn game_loop() {
             block_size,
         );
 
-        ui_renderer.render_hud(&mut framebuffer, &game_state);
+        // Render enemies on minimap
+        sprite_renderer.render_enemies_minimap(
+            &mut framebuffer,
+            &enemies,
+            minimap_x,
+            minimap_y,
+            cell_size,
+            block_size,
+        );
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
@@ -163,13 +216,10 @@ fn game_loop() {
         {
             draw_handle.draw_texture(&texture, 0, 0, Color::LIGHTGRAY);
 
-            // Draw UI elements
-            draw_handle.draw_text(&game_state.format_stats(), 10, 10, 20, Color::WHITE);
-
-            // Draw pickup message if active
+            // Draw pickup message if active (on top of everything)
             if message_timer > 0.0 {
                 let msg_x = WINDOW_WIDTH / 2 - 100;
-                let msg_y = WINDOW_HEIGHT - 100;
+                let msg_y = VIEWPORT_HEIGHT / 2;
                 draw_handle.draw_text(&pickup_message, msg_x, msg_y, 30, Color::YELLOW);
             }
         }
@@ -209,5 +259,8 @@ fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GOLD)),
         Image::load_image("assets/pickup_treasure.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::SKYBLUE)),
+        // Enemies (8+)
+        Image::load_image("assets/sprites/rat/walk_1.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
     ]
 }

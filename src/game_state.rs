@@ -76,6 +76,16 @@ impl GameState {
         self.score
     }
 
+    /// Take damage
+    pub fn take_damage(&mut self, damage: i32) {
+        self.health = (self.health - damage).max(0);
+    }
+
+    /// Check if player is dead
+    pub fn is_dead(&self) -> bool {
+        self.health <= 0
+    }
+
     /// Format stats as string for UI
     pub fn format_stats(&self) -> String {
         format!(
