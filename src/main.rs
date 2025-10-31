@@ -11,6 +11,8 @@ mod player;
 mod ray;
 mod raycaster;
 mod renderer;
+mod sprite;
+mod sprite_renderer;
 mod wall_renderer;
 
 use rand::Rng;
@@ -27,6 +29,8 @@ use maze_generator::generate_large_maze;
 use player::Player;
 use raycaster::{cast_rays, cast_single_ray};
 use renderer::Renderer;
+use sprite::spawn_sprites_in_maze;
+use sprite_renderer::SpriteRenderer;
 use wall_renderer::WallRenderer;
 
 const WINDOW_WIDTH: i32 = 1900;
@@ -55,13 +59,22 @@ fn game_loop() {
     let (maze, player_pos) = generate_large_maze(block_size);
     let mut player = Player::new(player_pos, 0.0);
 
-    let vision_radius = block_size as f32 * 4.0; // Player can see 4 cells away
+    // Spawn more sprites now that the algorithm is improved
+    let num_sprites = 25;
+    let mut sprites = spawn_sprites_in_maze(&maze, block_size, num_sprites);
+
+    let vision_radius = block_size as f32 * 4.0;
     let mut fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
 
     let renderer = Renderer::new(block_size);
 
+    // Load wall textures
     let textures = load_wolfenstein_textures(&mut handle, &raylib_thread);
     let wall_renderer = WallRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, textures);
+
+    // Load sprite textures
+    let sprite_textures = load_sprite_textures(&mut handle, &raylib_thread);
+    let sprite_renderer = SpriteRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, sprite_textures);
 
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
@@ -72,22 +85,27 @@ fn game_loop() {
         for command in commands {
             player.execute_command(command, &maze, block_size);
         }
+
         framebuffer.clear();
 
+        // Render 3D view
         wall_renderer.render_floor_ceiling(&mut framebuffer);
-        // renderer.render_maze(&mut framebuffer, &maze);
-        renderer.render_player(&mut framebuffer, &player);
-        // For multiple rays (full FOV)
+
+        // Cast rays for raycasting
         let fov = PI / 3.0; // 60 degrees
-        let num_rays = 320; // One ray per column (for 3D view later)
+        let num_rays = 320;
         let rays = cast_rays(&player, &maze, block_size, fov, num_rays);
 
+        // Render walls
         wall_renderer.render_3d_view(&mut framebuffer, &rays, &player, block_size);
 
-        // Update fog of war with line-of-sight
+        // Render sprites (AFTER walls, with depth testing)
+        sprite_renderer.render_sprites(&mut framebuffer, &sprites, &player, &rays, block_size);
+
+        // Update fog of war
         fog_of_war.update(&player, &rays, &maze);
 
-        renderer.render_debug_rays(&mut framebuffer, &player, &rays);
+        // Render minimap
         renderer.render_minimap(
             &mut framebuffer,
             &maze,
@@ -98,6 +116,17 @@ fn game_loop() {
             minimap_size,
         );
 
+        // Render sprites on minimap
+        let cell_size = minimap_size / maze[0].len().max(maze.len()) as i32;
+        sprite_renderer.render_sprites_minimap(
+            &mut framebuffer,
+            &sprites,
+            minimap_x,
+            minimap_y,
+            cell_size,
+            block_size,
+        );
+
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
             .expect("The texture loaded from the color buffer should be valid");
@@ -105,8 +134,6 @@ fn game_loop() {
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
             draw_handle.draw_texture(&texture, 0, 0, Color::LIGHTGRAY);
-
-            //draw_handle.gui_button(rectangle, "Hello Word");
         }
     }
 }
@@ -121,5 +148,18 @@ fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -
         Image::load_image("assets/level1_deco1_dark.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco2_dark.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco3_dark.png").expect("Failed to load texture"),
+    ]
+}
+
+fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
+    vec![
+        Image::load_image("assets/sprite_barrel.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::BROWN)),
+        Image::load_image("assets/sprite_pillar.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
+        Image::load_image("assets/sprite_lamp.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::YELLOW)),
+        Image::load_image("assets/sprite_plant.png")
+            .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GREEN)),
     ]
 }
