@@ -1,5 +1,23 @@
 # Sistema de Shaders - Visión General
 
+## Overview
+
+Tierra:
+![Why](./img/earth.png)
+
+Jupiter:
+![Why](./img/jupyter.png)
+
+Magenta:
+![Why](./img/magenta.png)
+
+Anillo:
+![Why](./img/ringed.png)
+
+Mundo de Agua:
+![Why](./img/water.png)
+
+
 ## Requisitos Mínimos
 
 ### Software Requerido
