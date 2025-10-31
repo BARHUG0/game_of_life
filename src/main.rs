@@ -6,6 +6,7 @@ mod controls;
 mod fog_of_war;
 mod framebuffer;
 mod maze;
+mod maze_generator;
 mod player;
 mod ray;
 mod raycaster;
@@ -21,7 +22,7 @@ use command::PlayerCommand;
 use controls::process_input;
 use fog_of_war::FogOfWar;
 use framebuffer::Framebuffer;
-use maze::{Maze, load_maze};
+use maze_generator::generate_large_maze;
 use player::Player;
 use raycaster::{cast_rays, cast_single_ray};
 use renderer::Renderer;
@@ -49,7 +50,7 @@ fn game_loop() {
     let mut rng = rand::rng();
 
     let block_size = 64;
-    let (maze, player_pos) = load_maze("assets/maze.txt", block_size);
+    let (maze, player_pos) = generate_large_maze(block_size);
     let mut player = Player::new(player_pos, 0.0);
 
     let vision_radius = block_size as f32 * 4.0; // Player can see 4 cells away
