@@ -184,13 +184,25 @@ pub fn generate_large_maze(block_size: usize) -> (Maze, Vector2) {
 
     let (mut maze, player_pos) = generate_maze(&config, block_size);
 
-    // Add variety: randomly assign different wall types
+    // Add variety: randomly assign different wall types with weighted distribution
+    // '1' = 75% (main texture)
+    // '2' = 10% (decorative)
+    // '3' = 10% (decorative)
+    // '4' = 5% (decorative)
     let mut rng = rand::rng();
     for row in maze.iter_mut() {
         for cell in row.iter_mut() {
             if *cell != ' ' {
-                let wall_idx = rng.random_range(0..config.wall_types.len());
-                *cell = config.wall_types[wall_idx];
+                let roll = rng.random_range(0..100);
+                *cell = if roll < 65 {
+                    '1' // 75% chance - main texture
+                } else if roll < 75 {
+                    '2' // 10% chance - decorative
+                } else if roll < 95 {
+                    '3' // 10% chance - decorative
+                } else {
+                    '4' // 5% chance - decorative
+                };
             }
         }
     }

@@ -59,7 +59,9 @@ fn game_loop() {
     let mut fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
 
     let renderer = Renderer::new(block_size);
-    let wall_renderer = WallRenderer::new_untextured(WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    let textures = load_wolfenstein_textures(&mut handle, &raylib_thread);
+    let wall_renderer = WallRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, textures);
 
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
@@ -107,4 +109,17 @@ fn game_loop() {
             //draw_handle.gui_button(rectangle, "Hello Word");
         }
     }
+}
+
+fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
+    vec![
+        Image::load_image("assets/level1_default_bright.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco1_bright.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco2_bright.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco3_bright.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_default_dark.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco1_dark.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco2_dark.png").expect("Failed to load texture"),
+        Image::load_image("assets/level1_deco3_dark.png").expect("Failed to load texture"),
+    ]
 }
