@@ -73,8 +73,8 @@ fn game_loop() {
         let fov = PI / 3.0; // 60 degrees
         let num_rays = 320; // One ray per column (for 3D view later)
         let rays = cast_rays(&player, &maze, block_size, fov, num_rays);
-        // In game loop, after casting rays:
-        fog_of_war.update(&player, &rays);
+        // Update fog of war with line-of-sight
+        fog_of_war.update(&player, &rays, &maze);
 
         renderer.render_debug_rays(&mut framebuffer, &player, &rays);
         renderer.render_minimap(
