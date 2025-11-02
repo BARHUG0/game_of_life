@@ -358,11 +358,11 @@ fn load_background_images(
     handle: &mut RaylibHandle,
     thread: &RaylibThread,
 ) -> (Option<Texture2D>, Option<Texture2D>) {
-    let menu_bg = Image::load_image("assets/menu_background.png")
+    let menu_bg = Image::load_image("assets/menu.jpeg")
         .ok()
         .and_then(|img| handle.load_texture_from_image(thread, &img).ok());
 
-    let gameover_bg = Image::load_image("assets/gameover_background.png")
+    let gameover_bg = Image::load_image("assets/gameover.jpg")
         .ok()
         .and_then(|img| handle.load_texture_from_image(thread, &img).ok());
 
