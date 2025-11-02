@@ -1,6 +1,7 @@
 //main.rs
 #![allow(warnings)]
 
+mod audio_manager;
 mod command;
 mod controls;
 mod enemy;
@@ -29,7 +30,7 @@ use std::{f32::consts::PI, thread};
 
 use command::PlayerCommand;
 use controls::process_input;
-use enemy::{spawn_enemies, update_enemies};
+use enemy::{EnemyAudioEvent, spawn_enemies, update_enemies};
 use fog_of_war::FogOfWar;
 use framebuffer::Framebuffer;
 use game_screen::{GameScreen, ScreenRenderer};
@@ -45,6 +46,8 @@ use wall_renderer::WallRenderer;
 use weapon::{ShotResult, Weapon};
 use weapon_renderer::WeaponRenderer;
 
+use audio_manager::{AudioManager, MusicTrack, SoundEffect};
+
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
 const HUD_HEIGHT: i32 = 100;
@@ -53,7 +56,6 @@ const FREMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
 const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
 const VIEWPORT_HEIGHT: i32 = WINDOW_HEIGHT - HUD_HEIGHT;
 
-// Game configuration
 const NUM_ENEMIES: usize = 50;
 
 fn main() {
@@ -68,16 +70,23 @@ fn game_loop() {
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
+    // Initialize audio device (separate from handle)
+    let audio = RaylibAudio::init_audio_device().expect("Failed to initialize audio device");
+
+    // Create audio manager (audio must live long enough for manager)
+    let mut audio_manager = AudioManager::new(&audio);
+
     let mut framebuffer = Framebuffer::new(FREMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT, Color::WHITE);
     let (menu_bg, gameover_bg) = load_background_images(&mut handle, &raylib_thread);
     let screen_renderer = ScreenRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, menu_bg, gameover_bg);
     let mut current_screen = GameScreen::MainMenu;
 
-    // Game data (will be reset on restart)
+    // Play menu music at start
+    audio_manager.play_music(MusicTrack::MainMenu);
+
     let mut rng = rand::rng();
     let block_size = 64;
 
-    // Initialize game
     let (mut maze, mut player_pos) = generate_large_maze(block_size);
     let mut player = Player::new(player_pos, 0.0);
     let mut game_state = GameState::new();
@@ -91,11 +100,9 @@ fn game_loop() {
 
     let renderer = Renderer::new(block_size);
 
-    // Load wall textures
     let textures = load_wolfenstein_textures(&mut handle, &raylib_thread);
     let wall_renderer = WallRenderer::new(WINDOW_WIDTH, VIEWPORT_HEIGHT, textures);
 
-    // Separate sprite textures from enemy textures
     let sprite_textures = load_sprite_textures(&mut handle, &raylib_thread);
     let enemy_textures = load_enemy_textures(&mut handle, &raylib_thread);
     let sprite_renderer = SpriteRenderer::new(
@@ -109,72 +116,78 @@ fn game_loop() {
     let weapon_renderer = WeaponRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, weapon_textures);
     let mut weapon = Weapon::new_machine_gun();
 
-    // Create UI renderer
     let ui_renderer = UIRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, HUD_HEIGHT);
 
     let minimap_size = 200;
     let minimap_x = WINDOW_WIDTH - minimap_size - 20;
     let minimap_y = 20;
 
+    let mut was_shooting = false;
+
     while !&handle.window_should_close() {
         let delta_time = handle.get_frame_time();
 
-        // INPUT PHASE - Poll input before drawing
+        // Update audio system every frame
+        audio_manager.update();
+
         let enter_pressed = handle.is_key_pressed(KeyboardKey::KEY_ENTER);
 
-        // UPDATE PHASE (only when playing)
         if current_screen == GameScreen::Playing {
             let input = process_input(&handle);
             for command in input.movement_commands {
                 player.execute_command(command, &maze, block_size);
             }
 
-            if input.is_shooting {
-                // Check ammo BEFORE firing
-                if game_state.ammo() > 0 {
-                    if weapon.try_fire() {
-                        game_state.use_ammo(1);
+            // Handle shooting sound
+            if input.is_shooting && game_state.ammo() > 0 {
+                if !was_shooting {
+                    audio_manager.start_shoot_loop();
+                }
+                was_shooting = true;
 
-                        // Raycast to check what we hit
-                        if let Some(ray) = cast_single_ray(&player, &maze, block_size) {
-                            // Check if we hit any enemies
-                            for enemy in enemies.iter_mut() {
-                                if enemy.is_alive() {
-                                    let dx = enemy.x() - player.x();
-                                    let dy = enemy.y() - player.y();
-                                    let angle_to_enemy = dy.atan2(dx);
+                if weapon.try_fire() {
+                    game_state.use_ammo(1);
 
-                                    // Fix angle wrapping issue
-                                    let mut angle_diff =
-                                        (angle_to_enemy - player.angle_of_view()).abs();
-                                    if angle_diff > std::f32::consts::PI {
-                                        angle_diff = 2.0 * std::f32::consts::PI - angle_diff;
-                                    }
+                    if let Some(ray) = cast_single_ray(&player, &maze, block_size) {
+                        for enemy in enemies.iter_mut() {
+                            if enemy.is_alive() {
+                                let dx = enemy.x() - player.x();
+                                let dy = enemy.y() - player.y();
+                                let angle_to_enemy = dy.atan2(dx);
 
-                                    let distance = enemy.distance_to(player.x(), player.y());
+                                let mut angle_diff =
+                                    (angle_to_enemy - player.angle_of_view()).abs();
+                                if angle_diff > std::f32::consts::PI {
+                                    angle_diff = 2.0 * std::f32::consts::PI - angle_diff;
+                                }
 
-                                    // Hit if enemy is close to crosshair and within range
-                                    if angle_diff < 0.1 && distance < ray.distance() {
-                                        if enemy.take_damage(weapon.damage()) {
+                                let distance = enemy.distance_to(player.x(), player.y());
+
+                                if angle_diff < 0.1 && distance < ray.distance() {
+                                    if let Some(audio_event) = enemy.take_damage(weapon.damage()) {
+                                        use crate::enemy::EnemyAudioEvent;
+                                        if audio_event == EnemyAudioEvent::Death {
                                             game_state.add_kill();
+                                            audio_manager.play_sound(SoundEffect::RatDeath);
                                         }
-                                        break;
                                     }
+                                    break;
                                 }
                             }
                         }
                     }
-                } else {
-                    weapon.stop_firing();
                 }
             } else {
+                if was_shooting {
+                    audio_manager.stop_shoot_loop();
+                }
+                was_shooting = false;
                 weapon.stop_firing();
             }
 
             weapon.update(delta_time);
 
-            // Update enemies and handle damage to player
-            let damage_taken = update_enemies(
+            let (damage_taken, enemy_audio_events) = update_enemies(
                 &mut enemies,
                 delta_time,
                 Vector2::new(player.x(), player.y()),
@@ -182,18 +195,37 @@ fn game_loop() {
                 block_size,
             );
 
+            // Play enemy audio events
+            for event in enemy_audio_events {
+                use crate::enemy::EnemyAudioEvent;
+                match event {
+                    EnemyAudioEvent::StartChase => {
+                        audio_manager.play_sound(SoundEffect::RatChase);
+                    }
+                    EnemyAudioEvent::Attack => {
+                        audio_manager.play_sound(SoundEffect::RatAttack);
+                    }
+                    EnemyAudioEvent::Death => {
+                        // Death sound already played when killed by shooting
+                    }
+                }
+            }
+
             if damage_taken > 0 {
                 game_state.take_damage(damage_taken);
                 pickup_message = format!("-{} HP", damage_taken);
                 message_timer = 1.0;
+
+                audio_manager.play_sound(SoundEffect::PlayerHurt);
             }
 
-            // Check if player died
             if game_state.is_dead() {
                 current_screen = GameScreen::GameOver;
+                audio_manager.stop_music();
+                audio_manager.stop_shoot_loop();
+                was_shooting = false;
             }
 
-            // Process pickups
             let collected = process_pickups(&mut sprites, player.x(), player.y());
             for pickup in collected {
                 let message = game_state.collect_pickup(pickup);
@@ -201,7 +233,6 @@ fn game_loop() {
                 message_timer = 2.0;
             }
 
-            // Update message timer
             if message_timer > 0.0 {
                 message_timer -= delta_time;
             }
@@ -209,32 +240,24 @@ fn game_loop() {
             // RENDER TO FRAMEBUFFER
             framebuffer.clear();
 
-            // Render 3D view
             wall_renderer.render_floor_ceiling(&mut framebuffer);
 
-            // Cast rays for raycasting
             let fov = PI / 3.0;
             let num_rays = 320;
             let rays = cast_rays(&player, &maze, block_size, fov, num_rays);
 
-            // Render walls
             wall_renderer.render_3d_view(&mut framebuffer, &rays, &player, block_size);
 
-            // Render sprites (AFTER walls, with depth testing)
             sprite_renderer.render_sprites(&mut framebuffer, &sprites, &player, &rays, block_size);
 
-            // Render enemies (AFTER sprites)
             sprite_renderer.render_enemies(&mut framebuffer, &enemies, &player, &rays, block_size);
 
             weapon_renderer.render_weapon(&mut framebuffer, &weapon, HUD_HEIGHT);
 
-            // Render HUD at the bottom
             ui_renderer.render_hud(&mut framebuffer, &game_state);
 
-            // Update fog of war
             fog_of_war.update(&player, &rays, &maze);
 
-            // Render minimap
             renderer.render_minimap(
                 &mut framebuffer,
                 &maze,
@@ -245,7 +268,6 @@ fn game_loop() {
                 minimap_size,
             );
 
-            // Render sprites on minimap
             let cell_size = minimap_size / maze[0].len().max(maze.len()) as i32;
             sprite_renderer.render_sprites_minimap(
                 &mut framebuffer,
@@ -256,7 +278,6 @@ fn game_loop() {
                 block_size,
             );
 
-            // Render enemies on minimap
             sprite_renderer.render_enemies_minimap(
                 &mut framebuffer,
                 &enemies,
@@ -267,7 +288,6 @@ fn game_loop() {
             );
         }
 
-        // PREPARE TEXTURE BEFORE DRAWING (if playing)
         let game_texture = if current_screen == GameScreen::Playing {
             Some(
                 handle
@@ -278,14 +298,12 @@ fn game_loop() {
             None
         };
 
-        // DRAW PHASE
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
             match current_screen {
                 GameScreen::MainMenu => {
                     screen_renderer.render_main_menu(&mut draw_handle);
 
-                    // Check for Enter key using captured value
                     if enter_pressed {
                         // Reset game
                         let (new_maze, new_player_pos) = generate_large_maze(block_size);
@@ -299,18 +317,19 @@ fn game_loop() {
                         weapon = Weapon::new_machine_gun();
                         pickup_message = String::new();
                         message_timer = 0.0;
+                        was_shooting = false;
 
                         current_screen = GameScreen::Playing;
+
+                        audio_manager.play_music(MusicTrack::Gameplay);
                     }
                 }
 
                 GameScreen::Playing => {
-                    // Use the pre-loaded texture
                     if let Some(ref texture) = game_texture {
                         draw_handle.draw_texture(texture, 0, 0, Color::LIGHTGRAY);
                     }
 
-                    // Draw pickup message on top of everything
                     if message_timer > 0.0 {
                         let msg_x = WINDOW_WIDTH / 2 - 100;
                         let msg_y = VIEWPORT_HEIGHT / 2;
@@ -327,6 +346,7 @@ fn game_loop() {
 
                     if enter_pressed {
                         current_screen = GameScreen::MainMenu;
+                        audio_manager.play_music(MusicTrack::MainMenu);
                     }
                 }
             }
@@ -364,7 +384,6 @@ fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -
 
 fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
     vec![
-        // Decorations (0-3)
         Image::load_image("assets/sprites/deco/barrel.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::BROWN)),
         Image::load_image("assets/sprites/deco/pillar.png")
@@ -373,7 +392,6 @@ fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::YELLOW)),
         Image::load_image("assets/sprites/deco/plant.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GREEN)),
-        // Pickups (4-7)
         Image::load_image("assets/sprites/pickups/health.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
         Image::load_image("assets/sprites/pickups/ammo.png")
@@ -387,7 +405,6 @@ fn load_sprite_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec
 
 fn load_enemy_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
     vec![
-        // Rat walk animation (0-3)
         Image::load_image("assets/sprites/rat/walk_1.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
         Image::load_image("assets/sprites/rat/walk_2.png")
@@ -396,14 +413,12 @@ fn load_enemy_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
         Image::load_image("assets/sprites/rat/walk_4.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKBROWN)),
-        // Rat attack animation (4-6)
         Image::load_image("assets/sprites/rat/attack_1.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
         Image::load_image("assets/sprites/rat/attack_2.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
         Image::load_image("assets/sprites/rat/attack_3.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::RED)),
-        // Rat death animation (7-9)
         Image::load_image("assets/sprites/rat/death_1.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::GRAY)),
         Image::load_image("assets/sprites/rat/death_2.png")
@@ -415,10 +430,8 @@ fn load_enemy_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<
 
 fn load_weapon_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -> Vec<Image> {
     vec![
-        // Machine gun idle (0)
         Image::load_image("assets/sprites/machine_gun/idle.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::DARKGRAY)),
-        // Machine gun firing frames (1-3)
         Image::load_image("assets/sprites/machine_gun/shoot_1.png")
             .unwrap_or_else(|_| Image::gen_image_color(64, 64, Color::ORANGE)),
         Image::load_image("assets/sprites/machine_gun/shoot_2.png")
