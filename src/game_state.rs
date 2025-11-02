@@ -10,6 +10,7 @@ pub struct GameState {
     keys: i32,
     treasure: i32,
     score: i32,
+    kills: i32,
 }
 
 impl GameState {
@@ -21,6 +22,7 @@ impl GameState {
             keys: 0,
             treasure: 0,
             score: 0,
+            kills: 0,
         }
     }
 
@@ -76,6 +78,10 @@ impl GameState {
         self.score
     }
 
+    pub fn kills(&self) -> i32 {
+        self.kills
+    }
+
     /// Take damage
     pub fn take_damage(&mut self, damage: i32) {
         self.health = (self.health - damage).max(0);
@@ -84,6 +90,12 @@ impl GameState {
     /// Check if player is dead
     pub fn is_dead(&self) -> bool {
         self.health <= 0
+    }
+
+    /// Add a kill
+    pub fn add_kill(&mut self) {
+        self.kills += 1;
+        self.score += 25;
     }
 
     /// Format stats as string for UI
