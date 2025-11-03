@@ -20,8 +20,7 @@ Este proyecto es una implementación de un motor de raycasting 3D inspirado en e
 - Sistema de pickups (salud, munición, llaves, tesoros)
 - HUD personalizado dibujado pixel a pixel
 
-![Gameplay](./assets/screenshots/gameplay.png)
-
+![Banner del Juego](./assets/screenshots/rat.png)
 ---
 
 ## 🎮 Controles
@@ -43,6 +42,7 @@ Este proyecto es una implementación de un motor de raycasting 3D inspirado en e
 - **Flechas ↑ ↓** - Navegar opciones
 - **Enter** - Confirmar selección
 
+![Banner del Juego](./assets/screenshots/treasure.png)
 ---
 
 ## 🔧 Instalación y Ejecución
@@ -78,6 +78,8 @@ git switch raycasting
 ```bash
 cargo run
 ```
+
+![Banner del Juego](./assets/screenshots/world.png)
 ---
 
 ## ⚙️ Uso de IA
@@ -143,7 +145,7 @@ You are an expert in computer graphics programming, specifically using the Rust 
 - Radio de visión: 4 bloques (256 píxeles)
 - Line-of-sight basado en raycasting
 - Las áreas exploradas permanecen visibles en el minimapa
-
+![Banner del Juego](./assets/screenshots/world.png)
 ---
 
 ## 🏗️ Arquitectura del Proyecto
@@ -254,3 +256,5 @@ Este proyecto se desarrolló utilizando los siguientes recursos y documentación
 ## 📝 Notas Finales
 
 Este proyecto fue desarrollado con fines educativos para aprender técnicas de gráficos por computadora, específicamente raycasting y renderizado 3D. El código prioriza claridad y comprensión sobre optimización extrema.
+
+![Banner del Juego](./assets/screenshots/death.png)
