@@ -79,7 +79,7 @@ git switch raycasting
 cargo run
 ```
 
-![Banner del Juego](./assets/screenshots/world.png)
+![Banner del Juego](./assets/screenshots/treasure.png)
 ---
 
 ## ⚙️ Uso de IA
@@ -145,6 +145,7 @@ You are an expert in computer graphics programming, specifically using the Rust 
 - Radio de visión: 4 bloques (256 píxeles)
 - Line-of-sight basado en raycasting
 - Las áreas exploradas permanecen visibles en el minimapa
+
 ![Banner del Juego](./assets/screenshots/world.png)
 ---
 
