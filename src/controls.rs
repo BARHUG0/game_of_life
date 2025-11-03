@@ -23,7 +23,7 @@ impl InputState {
 pub fn process_input(window: &RaylibHandle) -> InputState {
     let mut input_state = InputState::new();
 
-    // Rotation
+    // Keyboard rotation
     if window.is_key_down(KeyboardKey::KEY_LEFT) {
         input_state
             .movement_commands
@@ -33,6 +33,23 @@ pub fn process_input(window: &RaylibHandle) -> InputState {
         input_state
             .movement_commands
             .push(PlayerCommand::rotate_right());
+    }
+
+    // Mouse rotation
+    let mouse_delta = window.get_mouse_delta();
+    let mouse_sensitivity = 0.003; // Adjust this for faster/slower rotation
+
+    if mouse_delta.x.abs() > 0.1 {
+        let rotation_amount = mouse_delta.x * mouse_sensitivity;
+        if rotation_amount > 0.0 {
+            input_state
+                .movement_commands
+                .push(PlayerCommand::RotateRight(rotation_amount));
+        } else {
+            input_state
+                .movement_commands
+                .push(PlayerCommand::RotateLeft(-rotation_amount));
+        }
     }
 
     // Movement - using WASD controls
@@ -58,8 +75,9 @@ pub fn process_input(window: &RaylibHandle) -> InputState {
             .push(PlayerCommand::strafe_right());
     }
 
-    // Shooting - left mouse button
-    input_state.is_shooting = window.is_key_down(KeyboardKey::KEY_SPACE);
+    // Shooting - left mouse button or space
+    input_state.is_shooting = window.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
+        || window.is_key_down(KeyboardKey::KEY_SPACE);
 
     input_state
 }

@@ -70,6 +70,11 @@ fn game_loop() {
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
+    handle.set_mouse_position(Vector2::new(
+        WINDOW_WIDTH as f32 / 2.0,
+        WINDOW_HEIGHT as f32 / 2.0,
+    ));
+
     // Initialize audio device (separate from handle)
     let audio = RaylibAudio::init_audio_device().expect("Failed to initialize audio device");
 
@@ -328,6 +333,14 @@ fn game_loop() {
         } else {
             None
         };
+
+        if !handle.is_cursor_hidden() {
+            handle.disable_cursor();
+            handle.set_mouse_position(Vector2::new(
+                WINDOW_WIDTH as f32 / 2.0,
+                WINDOW_HEIGHT as f32 / 2.0,
+            ));
+        }
 
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
