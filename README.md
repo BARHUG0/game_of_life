@@ -1,5 +1,6 @@
 # Wolfenstein Clone - Motor de Raycasting en Rust
-
+### Disclaimer
+Este clon utiliza las version lanzada para la Nintendo SNES para presentar un proyecto amigable con un público más amplio sin infringir políticas de ningún tipo. Nintendo insistió en censurar el juego de acuerdo con sus políticas; esto incluyó primero hacer que todo sea verde sangre y finalmente eliminarlo, eliminar imágenes nazis y clips de voz alemanes, y reemplazar perros enemigos con ratas gigantes. 
 ![Banner del Juego](./assets/screenshots/banner.png)
 
 ---
