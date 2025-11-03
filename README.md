@@ -41,8 +41,6 @@ Este proyecto es una implementación de un motor de raycasting 3D inspirado en e
 ### Navegación de Menús
 - **Flechas ↑ ↓** - Navegar opciones
 - **Enter** - Confirmar selección
-
-![Banner del Juego](./assets/screenshots/treasure.png)
 ---
 
 ## 🔧 Instalación y Ejecución
