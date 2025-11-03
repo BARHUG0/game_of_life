@@ -35,7 +35,7 @@ use fog_of_war::FogOfWar;
 use framebuffer::Framebuffer;
 use game_screen::{GameScreen, ScreenRenderer};
 use game_state::GameState;
-use maze_generator::generate_large_maze;
+use maze_generator::{LevelSize, generate_maze_with_size};
 use player::Player;
 use raycaster::{cast_rays, cast_single_ray};
 use renderer::Renderer;
@@ -78,8 +78,11 @@ fn game_loop() {
 
     let mut framebuffer = Framebuffer::new(FREMEBUFFER_WIDTH, FRAMEBUFFER_HEIGHT, Color::WHITE);
     let (menu_bg, gameover_bg) = load_background_images(&mut handle, &raylib_thread);
-    let screen_renderer = ScreenRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, menu_bg, gameover_bg);
+
+    let mut screen_renderer =
+        ScreenRenderer::new(WINDOW_WIDTH, WINDOW_HEIGHT, menu_bg, gameover_bg);
     let mut current_screen = GameScreen::MainMenu;
+    let mut selected_level = LevelSize::Medium;
 
     // Play menu music at start
     audio_manager.play_music(MusicTrack::MainMenu);
@@ -87,7 +90,7 @@ fn game_loop() {
     let mut rng = rand::rng();
     let block_size = 64;
 
-    let (mut maze, mut player_pos) = generate_large_maze(block_size);
+    let (mut maze, mut player_pos) = generate_maze_with_size(block_size, selected_level);
     let mut player = Player::new(player_pos, 0.0);
     let mut game_state = GameState::new();
     let mut pickup_message = String::new();
@@ -131,11 +134,39 @@ fn game_loop() {
         audio_manager.update();
 
         let enter_pressed = handle.is_key_pressed(KeyboardKey::KEY_ENTER);
+        let up_pressed = handle.is_key_pressed(KeyboardKey::KEY_UP);
+        let down_pressed = handle.is_key_pressed(KeyboardKey::KEY_DOWN);
 
         if current_screen == GameScreen::Playing {
             let input = process_input(&handle);
+
+            game_state.update_timer(delta_time);
+
+            let old_x = player.x();
+            let old_y = player.y();
+
             for command in input.movement_commands {
                 player.execute_command(command, &maze, block_size);
+            }
+            let player_grid_x = (player.x() / block_size as f32) as usize;
+            let player_grid_y = (player.y() / block_size as f32) as usize;
+
+            if player_grid_y < maze.len() && player_grid_x < maze[0].len() {
+                if maze[player_grid_y][player_grid_x] == 'E' {
+                    if game_state.hay_key() {
+                        // Victory! Player has the key
+                        current_screen = GameScreen::Victory;
+                        audio_manager.stop_music();
+                        audio_manager.stop_shoot_loop();
+                        was_shooting = false;
+                    } else {
+                        // No key - push player back and show message
+                        player.set_position(Vector2::new(old_x, old_y));
+                        pickup_message = "LOCKED! Find the KEY!".to_string();
+                        message_timer = 2.0;
+                        audio_manager.play_sound(SoundEffect::PlayerHurt);
+                    }
+                }
             }
 
             // Handle shooting sound
@@ -305,14 +336,38 @@ fn game_loop() {
                     screen_renderer.render_main_menu(&mut draw_handle);
 
                     if enter_pressed {
-                        // Reset game
-                        let (new_maze, new_player_pos) = generate_large_maze(block_size);
+                        current_screen = GameScreen::LevelSelect;
+                    }
+                }
+
+                GameScreen::LevelSelect => {
+                    if up_pressed {
+                        screen_renderer.move_selection_up();
+                    }
+                    if down_pressed {
+                        screen_renderer.move_selection_down();
+                    }
+
+                    screen_renderer.render_level_select(&mut draw_handle);
+
+                    if enter_pressed {
+                        // Get selected level
+                        selected_level = screen_renderer.get_selected_level();
+
+                        // Generate maze with selected size
+                        let (new_maze, new_player_pos) =
+                            generate_maze_with_size(block_size, selected_level);
                         maze = new_maze;
                         player_pos = new_player_pos;
                         player = Player::new(player_pos, 0.0);
                         game_state = GameState::new();
+
+                        // Spawn sprites and enemies based on level size
+                        let num_sprites = selected_level.num_sprites();
+                        let num_enemies = selected_level.num_enemies();
+
                         sprites = spawn_sprites_in_maze(&maze, block_size, num_sprites);
-                        enemies = spawn_enemies(&maze, block_size, player_pos, NUM_ENEMIES);
+                        enemies = spawn_enemies(&maze, block_size, player_pos, num_enemies);
                         fog_of_war = FogOfWar::new(&maze, block_size, vision_radius);
                         weapon = Weapon::new_machine_gun();
                         pickup_message = String::new();
@@ -320,7 +375,6 @@ fn game_loop() {
                         was_shooting = false;
 
                         current_screen = GameScreen::Playing;
-
                         audio_manager.play_music(MusicTrack::Gameplay);
                     }
                 }
@@ -342,6 +396,21 @@ fn game_loop() {
                         &mut draw_handle,
                         game_state.score(),
                         game_state.kills(),
+                    );
+
+                    if enter_pressed {
+                        current_screen = GameScreen::MainMenu;
+                        audio_manager.play_music(MusicTrack::MainMenu);
+                    }
+                }
+
+                GameScreen::Victory => {
+                    let time_str = game_state.format_time();
+                    screen_renderer.render_victory(
+                        &mut draw_handle,
+                        game_state.score(),
+                        game_state.kills(),
+                        &time_str,
                     );
 
                     if enter_pressed {
@@ -375,10 +444,12 @@ fn load_wolfenstein_textures(handle: &mut RaylibHandle, thread: &RaylibThread) -
         Image::load_image("assets/level1_deco1_bright.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco2_bright.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco3_bright.png").expect("Failed to load texture"),
+        Image::load_image("assets/door_light.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_default_dark.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco1_dark.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco2_dark.png").expect("Failed to load texture"),
         Image::load_image("assets/level1_deco3_dark.png").expect("Failed to load texture"),
+        Image::load_image("assets/door_dark.png").expect("Failed to load texture"),
     ]
 }
 

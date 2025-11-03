@@ -1,6 +1,7 @@
 //maze_generator.rs
 use rand::Rng;
 use raylib::prelude::*;
+use std::collections::VecDeque;
 
 use crate::maze::Maze;
 
@@ -220,11 +221,56 @@ fn find_starting_position(maze: &Maze, block_size: usize, rng: &mut impl Rng) ->
     Vector2::new((block_size * 2) as f32, (block_size * 2) as f32)
 }
 
-/// Generate a medium-sized maze with rooms and varied wall textures
-pub fn generate_large_maze(block_size: usize) -> (Maze, Vector2) {
-    let config = MazeConfig::new(35, 35)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LevelSize {
+    Small,
+    Medium,
+    Large,
+}
+
+impl LevelSize {
+    pub fn dimensions(&self) -> (usize, usize) {
+        match self {
+            LevelSize::Small => (21, 21),
+            LevelSize::Medium => (29, 29),
+            LevelSize::Large => (35, 35),
+        }
+    }
+
+    pub fn rooms(&self) -> (usize, usize, usize) {
+        // (num_rooms, min_size, max_size)
+        match self {
+            LevelSize::Small => (4, 3, 6),
+            LevelSize::Medium => (5, 4, 7),
+            LevelSize::Large => (6, 4, 8),
+        }
+    }
+
+    pub fn num_sprites(&self) -> usize {
+        match self {
+            LevelSize::Small => 15,
+            LevelSize::Medium => 20,
+            LevelSize::Large => 25,
+        }
+    }
+
+    pub fn num_enemies(&self) -> usize {
+        match self {
+            LevelSize::Small => 20,
+            LevelSize::Medium => 35,
+            LevelSize::Large => 50,
+        }
+    }
+}
+
+// Update generate_maze_with_size to place exit
+pub fn generate_maze_with_size(block_size: usize, level_size: LevelSize) -> (Maze, Vector2) {
+    let (width, height) = level_size.dimensions();
+    let (num_rooms, min_size, max_size) = level_size.rooms();
+
+    let config = MazeConfig::new(width, height)
         .with_wall_types(vec!['1', '2', '3', '4'])
-        .with_rooms(6, 4, 8); // 6 rooms, size 4-8 cells
+        .with_rooms(num_rooms, min_size, max_size);
 
     let (mut maze, player_pos) = generate_maze(&config, block_size);
 
@@ -247,5 +293,49 @@ pub fn generate_large_maze(block_size: usize) -> (Maze, Vector2) {
         }
     }
 
+    // Place exit at furthest point from player
+    let start_grid_x = (player_pos.x / block_size as f32) as usize;
+    let start_grid_y = (player_pos.y / block_size as f32) as usize;
+
+    let (exit_x, exit_y) = find_furthest_point(&maze, start_grid_x, start_grid_y);
+    maze[exit_y][exit_x] = 'E'; // E for Exit
+
     (maze, player_pos)
+}
+
+fn find_furthest_point(maze: &Maze, start_x: usize, start_y: usize) -> (usize, usize) {
+    let mut visited = vec![vec![false; maze[0].len()]; maze.len()];
+    let mut queue = VecDeque::new();
+
+    queue.push_back((start_x, start_y, 0));
+    visited[start_y][start_x] = true;
+
+    let mut furthest = (start_x, start_y);
+    let mut max_distance = 0;
+
+    while let Some((x, y, dist)) = queue.pop_front() {
+        if dist > max_distance {
+            max_distance = dist;
+            furthest = (x, y);
+        }
+
+        // Check 4 directions
+        let directions = [(0, -1), (1, 0), (0, 1), (-1, 0)];
+        for (dx, dy) in directions {
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+
+            if nx >= 0 && ny >= 0 && ny < maze.len() as i32 && nx < maze[0].len() as i32 {
+                let nx = nx as usize;
+                let ny = ny as usize;
+
+                if !visited[ny][nx] && maze[ny][nx] == ' ' {
+                    visited[ny][nx] = true;
+                    queue.push_back((nx, ny, dist + 1));
+                }
+            }
+        }
+    }
+
+    furthest
 }

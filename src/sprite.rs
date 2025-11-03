@@ -185,7 +185,6 @@ pub fn spawn_sprites_in_maze(
     spawn_sprites_with_config(maze, block_size, &config)
 }
 
-/// Spawn sprites with custom configuration
 pub fn spawn_sprites_with_config(
     maze: &crate::maze::Maze,
     block_size: usize,
@@ -193,6 +192,7 @@ pub fn spawn_sprites_with_config(
 ) -> Vec<Sprite> {
     let mut sprites = Vec::new();
     let mut rng = rand::rng();
+    let mut key_spawned = false;
 
     // Collect all valid spawn positions
     let mut valid_positions = Vec::new();
@@ -233,7 +233,7 @@ pub fn spawn_sprites_with_config(
         }
     }
 
-    // Then place pickups
+    // Then place pickups - ONE KEY ONLY
     let pickup_start_pos = config.num_decorations;
     for (world_x, world_y) in valid_positions.iter().skip(pickup_start_pos) {
         if sprites.iter().filter(|s| s.is_pickup()).count() >= config.num_pickups {
@@ -247,15 +247,18 @@ pub fn spawn_sprites_with_config(
         });
 
         if !too_close {
-            // Distribute pickup types
-            let pickup_type = match rng.random_range(0..4) {
-                0 => PickupType::Health,
-                1 => PickupType::Ammo,
-                2 => PickupType::Key,
-                _ => PickupType::Treasure,
+            // Distribute pickup types - ensuring ONLY ONE KEY
+            let pickup_type = if !key_spawned && rng.random_range(0..4) == 2 {
+                key_spawned = true;
+                PickupType::Key
+            } else {
+                match rng.random_range(0..3) {
+                    0 => PickupType::Health,
+                    1 => PickupType::Ammo,
+                    _ => PickupType::Treasure,
+                }
             };
 
-            // Texture indices for pickups (assuming textures 4-7 are pickups)
             let texture_index = match pickup_type {
                 PickupType::Health => 4,
                 PickupType::Ammo => 5,
@@ -268,6 +271,26 @@ pub fn spawn_sprites_with_config(
                 texture_index,
                 pickup_type,
             ));
+        }
+    }
+
+    // Force spawn key if it wasn't placed yet
+    if !key_spawned {
+        for (world_x, world_y) in valid_positions.iter().skip(pickup_start_pos) {
+            let too_close = sprites.iter().any(|s: &Sprite| {
+                let dx = s.x() - world_x;
+                let dy = s.y() - world_y;
+                (dx * dx + dy * dy).sqrt() < config.min_spacing * 0.5
+            });
+
+            if !too_close {
+                sprites.push(Sprite::new_pickup(
+                    Vector2::new(*world_x, *world_y),
+                    6,
+                    PickupType::Key,
+                ));
+                break;
+            }
         }
     }
 

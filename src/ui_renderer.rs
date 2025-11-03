@@ -177,8 +177,20 @@ impl UIRenderer {
         let section_width = self.screen_width / 4;
         let center_x = section_width * 3 + section_width / 2;
 
+        let key_text = if game_state.hay_key() {
+            "KEY: ✓"
+        } else {
+            "KEY: ✗"
+        };
+
+        let key_color = if game_state.hay_key() {
+            Color::YELLOW
+        } else {
+            Color::GRAY
+        };
+
         // Keys
-        self.draw_small_text(framebuffer, "KEYS", center_x - 20, hud_y + 10, Color::GRAY);
+        self.draw_small_text(framebuffer, key_text, center_x - 20, hud_y + 10, key_color);
 
         let keys = game_state.keys();
         let key_size = 15;

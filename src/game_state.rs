@@ -11,6 +11,7 @@ pub struct GameState {
     treasure: i32,
     score: i32,
     kills: i32,
+    elapsed_time: f32,
 }
 
 impl GameState {
@@ -23,6 +24,7 @@ impl GameState {
             treasure: 0,
             score: 0,
             kills: 0,
+            elapsed_time: 0.0,
         }
     }
 
@@ -58,6 +60,28 @@ impl GameState {
         self.health
     }
 
+    pub fn elapsed_time(&self) -> f32 {
+        self.elapsed_time
+    }
+
+    pub fn hay_key(&self) -> bool {
+        self.keys > 0
+    }
+
+    pub fn update_timer(&mut self, delta_time: f32) {
+        self.elapsed_time += delta_time;
+    }
+
+    pub fn format_time(&self) -> String {
+        let minutes = (self.elapsed_time / 60.0) as i32;
+        let seconds = (self.elapsed_time % 60.0) as i32;
+        format!("{:02}:{:02}", minutes, seconds)
+    }
+
+    pub fn kills(&self) -> i32 {
+        self.kills
+    }
+
     pub fn max_health(&self) -> i32 {
         self.max_health
     }
@@ -78,10 +102,6 @@ impl GameState {
         self.score
     }
 
-    pub fn kills(&self) -> i32 {
-        self.kills
-    }
-
     /// Take damage
     pub fn take_damage(&mut self, damage: i32) {
         self.health = (self.health - damage).max(0);
@@ -92,10 +112,9 @@ impl GameState {
         self.health <= 0
     }
 
-    /// Add a kill
     pub fn add_kill(&mut self) {
         self.kills += 1;
-        self.score += 25;
+        self.score += 50;
     }
 
     /// Format stats as string for UI

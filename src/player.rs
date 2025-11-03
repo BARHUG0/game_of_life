@@ -64,7 +64,7 @@ impl Player {
         }
 
         let cell = maze[i][j];
-        if cell == ' ' {
+        if cell == ' ' || cell == 'E' {
             self.position.x = new_x;
             self.position.y = new_y;
         }

@@ -187,13 +187,14 @@ impl WallRenderer {
             '2' => 1,
             '3' => 2,
             '4' => 3,
+            'E' => 4,
             _ => 0,
         };
 
         // Apply Wolfenstein-style lighting based on wall orientation
         let texture_index = match ray.side_hit() {
             Side::Vertical => base_texture,       // Bright variant (0-3)
-            Side::Horizontal => base_texture + 4, // Dark variant (4-7)
+            Side::Horizontal => base_texture + 5, // Dark variant (4-7)
         };
 
         texture_index.min(self.textures.len().saturating_sub(1))
@@ -263,7 +264,8 @@ impl WallRenderer {
             '2' => Color::new(50, 180, 50, 255),  // Green
             '3' => Color::new(50, 50, 180, 255),  // Blue
             '4' => Color::new(180, 180, 50, 255), // Yellow
-            _ => Color::new(128, 128, 128, 255),  // Gray
+            'E' => Color::new(255, 215, 0, 255),
+            _ => Color::new(128, 128, 128, 255), // Gray
         };
 
         // Apply Wolfenstein-style shading

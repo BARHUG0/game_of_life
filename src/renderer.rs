@@ -94,6 +94,7 @@ impl Renderer {
                     // Render explored areas normally
                     match cell {
                         ' ' => framebuffer.set_foreground_color(Color::new(220, 220, 220, 255)),
+                        'E' => framebuffer.set_foreground_color(Color::new(255, 215, 0, 255)),
                         _ => framebuffer.set_foreground_color(Color::new(100, 50, 150, 255)),
                     }
                 } else {
