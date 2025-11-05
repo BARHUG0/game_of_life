@@ -56,9 +56,9 @@ fn game_loop() {
     let objects = vec![Object::Cube(cube)];
 
     // Create a light source
-    let light = Light::white(
-        Vector3::new(5.0, 5.0, 5.0), // Position: top-right-front
-        1.0,                         // Intensity
+    let mut light = Light::white(
+        Vector3::new(0.0, 0.0, 8.0), // Start near camera
+        2.0,                         // Brighter intensity
     );
 
     let mut camera = Camera::new(
@@ -68,6 +68,7 @@ fn game_loop() {
     );
 
     let rotation_speed = PI as f32 / 100.0;
+    let light_move_speed = 0.5;
 
     while !&handle.window_should_close() {
         framebuffer.clear();
@@ -84,6 +85,26 @@ fn game_loop() {
         }
         if handle.is_key_down(KeyboardKey::KEY_DOWN) {
             camera.orbit(0.0, rotation_speed);
+        }
+
+        // Light controls (WASD + Q/E)
+        if handle.is_key_down(KeyboardKey::KEY_W) {
+            light.position.z -= light_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_S) {
+            light.position.z += light_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_A) {
+            light.position.x -= light_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_D) {
+            light.position.x += light_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_Q) {
+            light.position.y -= light_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_E) {
+            light.position.y += light_move_speed;
         }
 
         render(&mut framebuffer, &objects, &camera, &light);

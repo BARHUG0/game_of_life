@@ -55,31 +55,56 @@ pub fn cast_ray(
         return BACKGROUND_COLOR;
     }
 
-    // Calculate lighting
+    // Calculate lighting vectors
     let light_dir = (light.position - intersection.point).normalized();
+    let view_dir = (*ray_origin - intersection.point).normalized();
     let normal = intersection.normal;
     let material = intersection.material();
 
     // Diffuse lighting: intensity * max(0, N · L)
     let diffuse_intensity = normal.dot(light_dir).max(0.0) * light.intensity;
 
+    // Specular lighting: intensity * (V · R)^shininess
+    let reflect_dir = reflect(&light_dir, &normal);
+    let specular_intensity =
+        view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light.intensity;
+
     // Ambient lighting (so dark sides aren't pure black)
     let ambient = 0.2;
 
-    // Combine ambient + diffuse
-    let total_intensity = (ambient + diffuse_intensity * material.albedo).min(1.0);
+    // Combine lighting components
+    let diffuse_contribution = diffuse_intensity * material.albedo[0];
+    let specular_contribution = specular_intensity * material.albedo[1];
 
-    // Apply intensity to material color
-    let final_color = color_multiply(material.diffuse, total_intensity);
+    // Apply diffuse to material color
+    let diffuse_color = color_multiply(material.diffuse, ambient + diffuse_contribution);
 
-    final_color
+    // Apply specular as white highlight
+    let specular_color = color_multiply(light.color, specular_contribution);
+
+    // Combine diffuse + specular
+    color_add(diffuse_color, specular_color)
 }
 
 fn color_multiply(color: Color, intensity: f32) -> Color {
     Color::new(
-        (color.r as f32 * intensity) as u8,
-        (color.g as f32 * intensity) as u8,
-        (color.b as f32 * intensity) as u8,
+        (color.r as f32 * intensity).min(255.0) as u8,
+        (color.g as f32 * intensity).min(255.0) as u8,
+        (color.b as f32 * intensity).min(255.0) as u8,
         color.a,
     )
+}
+
+fn color_add(a: Color, b: Color) -> Color {
+    Color::new(
+        (a.r as u16 + b.r as u16).min(255) as u8,
+        (a.g as u16 + b.g as u16).min(255) as u8,
+        (a.b as u16 + b.b as u16).min(255) as u8,
+        a.a,
+    )
+}
+
+fn reflect(incident: &Vector3, normal: &Vector3) -> Vector3 {
+    // R = I - 2(N · I)N
+    *incident - *normal * 2.0 * normal.dot(*incident)
 }
