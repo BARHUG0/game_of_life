@@ -10,6 +10,7 @@ mod renderer;
 
 use camera::Camera;
 use framebuffer::Framebuffer;
+use light::Light;
 use material::Material;
 use objects::{Cube, Object, Sphere};
 use raylib::prelude::*;
@@ -42,17 +43,23 @@ fn game_loop() {
         Vector3::new(-1.0, -1.0, -1.0),
         Vector3::new(1.0, 1.0, 1.0),
         [
-            Material::new(Color::RED),    // +X
-            Material::new(Color::BLUE),   // -X
-            Material::new(Color::GREEN),  // +Y
-            Material::new(Color::YELLOW), // -Y
-            Material::new(Color::ORANGE), // +Z
-            Material::new(Color::PURPLE), // -Z
+            Material::simple(Color::RED),    // +X
+            Material::simple(Color::BLUE),   // -X
+            Material::simple(Color::GREEN),  // +Y
+            Material::simple(Color::YELLOW), // -Y
+            Material::simple(Color::ORANGE), // +Z
+            Material::simple(Color::PURPLE), // -Z
         ],
     );
 
     // Using the enum-based Object system
     let objects = vec![Object::Cube(cube)];
+
+    // Create a light source
+    let light = Light::white(
+        Vector3::new(5.0, 5.0, 5.0), // Position: top-right-front
+        1.0,                         // Intensity
+    );
 
     let mut camera = Camera::new(
         Vector3::new(0.0, 0.0, 10.0),
@@ -79,7 +86,7 @@ fn game_loop() {
             camera.orbit(0.0, rotation_speed);
         }
 
-        render(&mut framebuffer, &objects, &camera);
+        render(&mut framebuffer, &objects, &camera, &light);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)

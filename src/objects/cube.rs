@@ -34,126 +34,63 @@ impl Cube {
 
 impl RayIntersect for Cube {
     fn ray_intersect(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Intersect {
+        // Optimized slab method - processes all axes inline without function calls
         let mut tmin = f32::NEG_INFINITY;
         let mut tmax = f32::INFINITY;
-        let mut hit_face: Option<usize> = None;
+        let mut hit_face: usize = 0;
 
-        // X axis
-        {
-            let origin = ray_origin.x;
-            let direction = ray_direction.x;
-            let min_val = self.min.x;
-            let max_val = self.max.x;
+        // Process all three axes using array indexing for compactness
+        let origins = [ray_origin.x, ray_origin.y, ray_origin.z];
+        let directions = [ray_direction.x, ray_direction.y, ray_direction.z];
+        let mins = [self.min.x, self.min.y, self.min.z];
+        let maxs = [self.max.x, self.max.y, self.max.z];
 
-            if direction.abs() < 1e-6 {
-                if origin < min_val || origin > max_val {
-                    return Intersect::empty();
-                }
-            } else {
+        for axis in 0..3 {
+            let origin = origins[axis];
+            let direction = directions[axis];
+            let min_val = mins[axis];
+            let max_val = maxs[axis];
+
+            if direction.abs() > 1e-6 {
+                // Ray not parallel to slab
                 let inv_d = 1.0 / direction;
                 let mut t1 = (min_val - origin) * inv_d;
                 let mut t2 = (max_val - origin) * inv_d;
 
-                let face_in = if t1 > t2 {
+                let face = if t1 > t2 {
                     std::mem::swap(&mut t1, &mut t2);
-                    1 // -X
+                    axis * 2 + 1 // negative face
                 } else {
-                    0 // +X
+                    axis * 2 // positive face
                 };
 
                 if t1 > tmin {
                     tmin = t1;
-                    hit_face = Some(face_in);
+                    hit_face = face;
                 }
-                if t2 < tmax {
-                    tmax = t2;
-                }
-                if tmin > tmax {
-                    return Intersect::empty();
-                }
-            }
-        }
 
-        // Y axis
-        {
-            let origin = ray_origin.y;
-            let direction = ray_direction.y;
-            let min_val = self.min.y;
-            let max_val = self.max.y;
-
-            if direction.abs() < 1e-6 {
+                tmax = tmax.min(t2);
+            } else {
+                // Ray parallel to slab - check if inside
                 if origin < min_val || origin > max_val {
                     return Intersect::empty();
                 }
-            } else {
-                let inv_d = 1.0 / direction;
-                let mut t1 = (min_val - origin) * inv_d;
-                let mut t2 = (max_val - origin) * inv_d;
+            }
 
-                let face_in = if t1 > t2 {
-                    std::mem::swap(&mut t1, &mut t2);
-                    3 // -Y
-                } else {
-                    2 // +Y
-                };
-
-                if t1 > tmin {
-                    tmin = t1;
-                    hit_face = Some(face_in);
-                }
-                if t2 < tmax {
-                    tmax = t2;
-                }
-                if tmin > tmax {
-                    return Intersect::empty();
-                }
+            // Early exit if slabs don't overlap
+            if tmin > tmax {
+                return Intersect::empty();
             }
         }
 
-        // Z axis
-        {
-            let origin = ray_origin.z;
-            let direction = ray_direction.z;
-            let min_val = self.min.z;
-            let max_val = self.max.z;
-
-            if direction.abs() < 1e-6 {
-                if origin < min_val || origin > max_val {
-                    return Intersect::empty();
-                }
-            } else {
-                let inv_d = 1.0 / direction;
-                let mut t1 = (min_val - origin) * inv_d;
-                let mut t2 = (max_val - origin) * inv_d;
-
-                let face_in = if t1 > t2 {
-                    std::mem::swap(&mut t1, &mut t2);
-                    5 // -Z
-                } else {
-                    4 // +Z
-                };
-
-                if t1 > tmin {
-                    tmin = t1;
-                    hit_face = Some(face_in);
-                }
-                if t2 < tmax {
-                    tmax = t2;
-                }
-                if tmin > tmax {
-                    return Intersect::empty();
-                }
-            }
-        }
-
+        // Check if intersection is behind the ray
         if tmin < 0.0 {
             return Intersect::empty();
         }
 
-        let face = hit_face.unwrap_or(0);
         let point = *ray_origin + *ray_direction * tmin;
-        let normal = Self::get_normal_for_face(face);
+        let normal = Self::get_normal_for_face(hit_face);
 
-        Intersect::new(self.materials[face], true, tmin, point, normal)
+        Intersect::new(self.materials[hit_face], true, tmin, point, normal)
     }
 }
