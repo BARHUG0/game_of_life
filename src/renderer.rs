@@ -3,19 +3,45 @@ use crate::framebuffer::Framebuffer;
 use crate::intersection::Intersect;
 use crate::light::Light;
 use crate::objects::{Object, RayIntersect};
+use crate::skybox::Skybox;
+use rand::Rng;
 use raylib::prelude::*;
 
-const BACKGROUND_COLOR: Color = Color::new(4, 12, 36, 255);
-const SHADOW_BIAS: f32 = 0.001;
+use std::f32::consts::PI;
+
 const MAX_RECURSION_DEPTH: u32 = 4;
+
 const LIGHT_ATTENUTATION: f32 = 0.7;
+
+const SHADOW_BIAS: f32 = 0.001;
+
+const SHADOW_SAMPLES: usize = 4;
+const SHADOW_SAMPLES_MIN: usize = 1;
+const SHADOW_SAMPLES_MAX: usize = 8;
+
+const DISTANCE_NEAR: f32 = 5.0;
+const DISTANCE_FAR: f32 = 20.0;
+const SAMPLES_NEAR: usize = 8;
+const SAMPLES_FAR: usize = 2;
+
+// NEW: Pre-collected emissive light source
+#[derive(Clone, Copy)]
+struct EmissiveLight {
+    position: Vector3,
+    color: Color,
+    strength: f32,
+}
 
 pub fn render(
     framebuffer: &mut Framebuffer,
     objects: &[Object],
     camera: &Camera,
     lights: &[Light],
+    skybox: &Skybox,
 ) {
+    // NEW: Pre-collect emissive objects into light sources
+    let emissive_lights = collect_emissive_lights(objects);
+
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
 
@@ -34,7 +60,15 @@ pub fn render(
             let ray_direction = Vector3::new(screen_x, screen_y, -1.0).normalized();
             let rotated_direction = camera.basis_change(&ray_direction);
 
-            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects, lights, 0);
+            let pixel_color = cast_ray(
+                &camera.eye,
+                &rotated_direction,
+                objects,
+                lights,
+                &emissive_lights, // NEW: Pass emissive lights
+                skybox,
+                0,
+            );
 
             framebuffer.set_foreground_color(pixel_color);
             framebuffer.set_pixel(x, y);
@@ -42,15 +76,45 @@ pub fn render(
     }
 }
 
+// NEW: Function to pre-collect emissive objects as light sources
+fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
+    let mut emissive_lights = Vec::new();
+
+    for object in objects {
+        let material = match object {
+            Object::Sphere(sphere) => sphere.material(),
+            Object::Cube(_) => continue, // Skip cubes for now
+        };
+
+        // Only collect objects with meaningful emission
+        if material.emission_strength > 0.5 {
+            let position = match object {
+                Object::Sphere(sphere) => sphere.center(),
+                Object::Cube(_) => continue,
+            };
+
+            emissive_lights.push(EmissiveLight {
+                position,
+                color: material.emission,
+                strength: material.emission_strength,
+            });
+        }
+    }
+
+    emissive_lights
+}
+
 pub fn cast_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
     objects: &[Object],
     lights: &[Light],
+    emissive_lights: &[EmissiveLight], // NEW: Pre-collected emissive lights
+    skybox: &Skybox,
     depth: u32,
 ) -> Color {
     if depth >= MAX_RECURSION_DEPTH {
-        return BACKGROUND_COLOR;
+        return skybox.sample(ray_direction);
     }
 
     let mut intersection = Intersect::empty();
@@ -65,15 +129,13 @@ pub fn cast_ray(
     }
 
     if !intersection.is_intersecting {
-        return BACKGROUND_COLOR;
+        return skybox.sample(ray_direction);
     }
 
     let material = intersection.material();
 
-    // Determine if ray is entering (front face) or exiting (back face)
     let is_entering = intersection.normal.dot(*ray_direction) < 0.0;
 
-    // Ensure normal always points against the ray direction
     let outward_normal = if is_entering {
         intersection.normal
     } else {
@@ -82,69 +144,117 @@ pub fn cast_ray(
 
     let view_dir = ray_direction.scale_by(-1.0);
 
-    // In cast_ray(), for emissive materials:
-    let surface_color = if material.emission_strength > 0.5 {
-        // Emissive objects use their diffuse color directly (no external lighting needed)
-        material.diffuse
-    } else {
-        // Normal objects get full lighting calculation
-        calculate_lighting(&intersection, &outward_normal, &view_dir, lights, objects)
-    };
+    // FIXED: Emissive materials now receive lighting like normal materials
+    // The emission is added at the end instead of bypassing lighting
+    let surface_color = calculate_lighting(
+        &intersection,
+        &outward_normal,
+        &view_dir,
+        lights,
+        emissive_lights, // NEW: Pass emissive lights
+        objects,
+        skybox,
+    );
 
-    // For opaque materials, handle only reflection
+    // Handle non-transparent materials with reflection
     if material.transparency < 0.01 {
         if material.reflectivity > 0.0 {
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
-            let reflection_color =
-                cast_ray(&reflect_origin, &reflect_dir, objects, lights, depth + 1);
-            return color_blend(surface_color, reflection_color, material.reflectivity);
+
+            let reflection_color = cast_ray(
+                &reflect_origin,
+                &reflect_dir,
+                objects,
+                lights,
+                emissive_lights,
+                skybox,
+                depth + 1,
+            );
+
+            let blended = color_blend(surface_color, reflection_color, material.reflectivity);
+
+            // Add emission for emissive materials
+            if material.emission_strength > 0.0 {
+                let emission_color = color_multiply(material.emission, material.emission_strength);
+                return color_add(blended, emission_color);
+            }
+
+            return blended;
         }
+
+        // Add emission for emissive materials without reflection
+        if material.emission_strength > 0.0 {
+            let emission_color = color_multiply(material.emission, material.emission_strength);
+            return color_add(surface_color, emission_color);
+        }
+
         return surface_color;
     }
 
-    // For transparent materials, handle both reflection and refraction
+    // FIXED: Proper Fresnel-weighted transparency blending
     let (n1, n2) = if is_entering {
-        (1.0, material.refractive_index) // Air to material
+        (1.0, material.refractive_index)
     } else {
-        (material.refractive_index, 1.0) // Material to air
+        (material.refractive_index, 1.0)
     };
 
-    // Calculate Fresnel coefficient (determines reflection vs refraction ratio)
     let kr = fresnel(&ray_direction, &outward_normal, n1, n2);
+    let kt = 1.0 - kr;
 
-    let mut final_color = surface_color;
+    // Start with surface contribution weighted by opacity
+    let mut final_color = color_multiply(surface_color, 1.0 - material.transparency);
 
-    // Add reflection component
-    if kr > 0.0 {
+    // Handle reflection component
+    if kr > 0.0 && material.transparency > 0.0 {
         let reflect_dir = reflect(&ray_direction, &outward_normal);
         let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
-        let reflection_color = cast_ray(&reflect_origin, &reflect_dir, objects, lights, depth + 1);
 
-        final_color =
-            color_blend_weighted(final_color, reflection_color, kr * material.transparency);
+        let reflection_color = cast_ray(
+            &reflect_origin,
+            &reflect_dir,
+            objects,
+            lights,
+            emissive_lights,
+            skybox,
+            depth + 1,
+        );
+
+        // FIXED: Add reflection weighted by Fresnel and transparency
+        final_color = color_add(
+            final_color,
+            color_multiply(reflection_color, kr * material.transparency),
+        );
     }
 
-    // Add refraction component (if not total internal reflection)
-    let kt = 1.0 - kr; // Transmission coefficient
-    if kt > 0.0 {
+    // Handle refraction component
+    if kt > 0.0 && material.transparency > 0.0 {
         if let Some(refract_dir) = refract(&ray_direction, &outward_normal, n1, n2) {
-            // For entering: push ray inward (subtract bias)
-            // For exiting: push ray outward (add bias)
             let refract_origin = if is_entering {
                 intersection.point - outward_normal * SHADOW_BIAS
             } else {
                 intersection.point + outward_normal * SHADOW_BIAS
             };
 
-            let refraction_color =
-                cast_ray(&refract_origin, &refract_dir, objects, lights, depth + 1);
-            final_color =
-                color_blend_weighted(final_color, refraction_color, kt * material.transparency);
+            let refraction_color = cast_ray(
+                &refract_origin,
+                &refract_dir,
+                objects,
+                lights,
+                emissive_lights,
+                skybox,
+                depth + 1,
+            );
+
+            // FIXED: Add refraction weighted by transmission and transparency
+            final_color = color_add(
+                final_color,
+                color_multiply(refraction_color, kt * material.transparency),
+            );
         }
     }
 
-    // Add emission (always additive, independent of lighting)
+    // Add emission for transparent emissive materials
     if material.emission_strength > 0.0 {
         let emission_color = color_multiply(material.emission, material.emission_strength);
         final_color = color_add(final_color, emission_color);
@@ -158,80 +268,83 @@ fn calculate_lighting(
     normal: &Vector3,
     view_dir: &Vector3,
     lights: &[Light],
+    emissive_lights: &[EmissiveLight], // NEW: Pre-collected emissive lights
     objects: &[Object],
+    skybox: &Skybox,
 ) -> Color {
     let material = intersection.material();
 
-    // Ambient
-    let ambient = 0.1;
-    let mut diffuse_color = color_multiply(material.diffuse, ambient * material.albedo[0]);
+    // Skybox-driven ambient lighting
+    let ambient_dir = *normal;
+    let ambient_sample = skybox.sample(&ambient_dir);
+    let ambient_intensity = 0.2;
+    let mut diffuse_color = color_multiply(ambient_sample, ambient_intensity * material.albedo[0]);
+
     let mut specular_color = Color::new(0, 0, 0, 255);
 
-    // 1. Process regular lights
+    // Process regular lights
     for light in lights {
-        let light_dir = (light.position - intersection.point).normalized();
-        let light_distance = (light.position - intersection.point).length();
-        let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
+        let visibility = if light.radius > 0.01 {
+            calculate_adaptive_visibility_with_distance(
+                &intersection.point,
+                normal,
+                light,
+                objects,
+                intersection.distance(),
+            )
+        } else {
+            let light_dir = (light.position - intersection.point).normalized();
+            let light_distance = (light.position - intersection.point).length();
+            let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+            if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+                1.0
+            } else {
+                0.0
+            }
+        };
+
+        if visibility > 0.0 {
+            let light_dir = (light.position - intersection.point).normalized();
             let light_intensity = light.get_intensity_at(&intersection.point);
 
-            // Diffuse
-            let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
+            let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity * visibility;
             let diffuse_contribution =
                 color_multiply(light.color, diffuse_intensity * material.albedo[0]);
             diffuse_color = color_add(diffuse_color, diffuse_contribution);
 
-            // Specular
             let reflect_dir = reflect(&light_dir, normal);
-            let specular_intensity =
-                view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light_intensity;
+            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(material.specular)
+                * light_intensity
+                * visibility;
             let specular_contribution =
                 color_multiply(light.color, specular_intensity * material.albedo[1]);
             specular_color = color_add(specular_color, specular_contribution);
         }
     }
 
-    // 2. Process emissive objects as light sources
-    for (idx, object) in objects.iter().enumerate() {
-        let obj_material = match object {
-            Object::Sphere(sphere) => sphere.material(),
-            Object::Cube(_) => continue,
-        };
-
-        if obj_material.emission_strength < 0.5 {
-            continue;
-        }
-
-        let emissive_pos = match object {
-            Object::Sphere(sphere) => sphere.center(),
-            Object::Cube(_) => continue,
-        };
-
-        let light_dir = (emissive_pos - intersection.point).normalized();
-        let light_distance = (emissive_pos - intersection.point).length();
+    // FIXED: Process pre-collected emissive lights (no iteration through all objects)
+    for emissive_light in emissive_lights {
+        let light_dir = (emissive_light.position - intersection.point).normalized();
+        let light_distance = (emissive_light.position - intersection.point).length();
         let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
-        // KEY FIX: Check shadows but exclude this specific emissive object
-        if !cast_shadow_ray_excluding(&shadow_origin, &light_dir, light_distance, objects, idx) {
-            let base_intensity = obj_material.emission_strength;
+        // Cast shadow ray
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+            let base_intensity = emissive_light.strength;
             let light_intensity =
                 base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
 
-            // Diffuse from emissive object
             let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
-            let diffuse_contribution = color_multiply(
-                obj_material.emission,
-                diffuse_intensity * material.albedo[0],
-            );
+            let diffuse_contribution =
+                color_multiply(emissive_light.color, diffuse_intensity * material.albedo[0]);
             diffuse_color = color_add(diffuse_color, diffuse_contribution);
 
-            // Specular from emissive object
             let reflect_dir = reflect(&light_dir, normal);
             let specular_intensity =
                 view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light_intensity;
             let specular_contribution = color_multiply(
-                obj_material.emission,
+                emissive_light.color,
                 specular_intensity * material.albedo[1],
             );
             specular_color = color_add(specular_color, specular_contribution);
@@ -239,6 +352,69 @@ fn calculate_lighting(
     }
 
     color_add(diffuse_color, specular_color)
+}
+
+fn calculate_adaptive_visibility_with_distance(
+    point: &Vector3,
+    normal: &Vector3,
+    light: &Light,
+    objects: &[Object],
+    distance_from_camera: f32,
+) -> f32 {
+    let sample_count = calculate_sample_count_for_distance(distance_from_camera);
+
+    let mut hit_count = 0;
+    let mut total_samples = 0;
+
+    for sample_idx in 0..SHADOW_SAMPLES_MIN {
+        let sample_offset = get_stratified_sample_on_sphere(sample_idx, sample_count, light.radius);
+        let sample_position = light.position + sample_offset;
+
+        let light_dir = (sample_position - *point).normalized();
+        let light_distance = (sample_position - *point).length();
+        let shadow_origin = *point + *normal * SHADOW_BIAS;
+
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+            hit_count += 1;
+        }
+        total_samples += 1;
+    }
+
+    if hit_count == SHADOW_SAMPLES_MIN {
+        return 1.0;
+    }
+
+    if hit_count == 0 {
+        return 0.0;
+    }
+
+    for sample_idx in SHADOW_SAMPLES_MIN..sample_count {
+        let sample_offset = get_stratified_sample_on_sphere(sample_idx, sample_count, light.radius);
+        let sample_position = light.position + sample_offset;
+
+        let light_dir = (sample_position - *point).normalized();
+        let light_distance = (sample_position - *point).length();
+        let shadow_origin = *point + *normal * SHADOW_BIAS;
+
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+            hit_count += 1;
+        }
+        total_samples += 1;
+    }
+
+    hit_count as f32 / total_samples as f32
+}
+
+fn calculate_sample_count_for_distance(distance: f32) -> usize {
+    if distance <= DISTANCE_NEAR {
+        SAMPLES_NEAR
+    } else if distance >= DISTANCE_FAR {
+        SAMPLES_FAR
+    } else {
+        let t = (distance - DISTANCE_NEAR) / (DISTANCE_FAR - DISTANCE_NEAR);
+        let interpolated = SAMPLES_NEAR as f32 * (1.0 - t) + SAMPLES_FAR as f32 * t;
+        (interpolated.round() as usize).clamp(SAMPLES_FAR, SAMPLES_NEAR)
+    }
 }
 
 fn cast_shadow_ray(
@@ -249,7 +425,6 @@ fn cast_shadow_ray(
 ) -> bool {
     for object in objects {
         let intersection = object.ray_intersect(ray_origin, ray_direction);
-        // Ignore transparent objects in shadow calculation (light passes through)
         if intersection.is_intersecting()
             && intersection.distance() < light_distance
             && intersection.material().transparency < 0.5
@@ -260,37 +435,11 @@ fn cast_shadow_ray(
     false
 }
 
-// Add this new function below cast_shadow_ray:
-fn cast_shadow_ray_excluding(
-    ray_origin: &Vector3,
-    ray_direction: &Vector3,
-    light_distance: f32,
-    objects: &[Object],
-    exclude_idx: usize,
-) -> bool {
-    for (idx, object) in objects.iter().enumerate() {
-        if idx == exclude_idx {
-            continue; // Skip the emissive object itself
-        }
-
-        let intersection = object.ray_intersect(ray_origin, ray_direction);
-        if intersection.is_intersecting()
-            && intersection.distance() < light_distance
-            && intersection.material().transparency < 0.5
-        {
-            return true;
-        }
-    }
-    false
-}
-
-// Snell's Law: Calculate refraction direction
 fn refract(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> Option<Vector3> {
     let eta = n1 / n2;
     let cos_i = -normal.dot(*incident);
     let sin_t2 = eta * eta * (1.0 - cos_i * cos_i);
 
-    // Total internal reflection occurs
     if sin_t2 > 1.0 {
         return None;
     }
@@ -299,22 +448,19 @@ fn refract(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> Option<Vec
     Some(*incident * eta + *normal * (eta * cos_i - cos_t))
 }
 
-// Fresnel equations: Calculate reflection coefficient using Schlick's approximation
 fn fresnel(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> f32 {
     let mut cos_i = -normal.dot(*incident).max(-1.0).min(1.0);
 
     let (eta_i, eta_t) = (n1, n2);
 
-    // Check for total internal reflection
     let sin_t = (eta_i / eta_t) * (1.0 - cos_i * cos_i).max(0.0).sqrt();
 
     if sin_t >= 1.0 {
-        return 1.0; // Total internal reflection
+        return 1.0;
     }
 
     let cos_t = (1.0 - sin_t * sin_t).max(0.0).sqrt();
 
-    // Prevent division by zero
     let denom_s = (eta_t * cos_i) + (eta_i * cos_t);
     let denom_p = (eta_i * cos_i) + (eta_t * cos_t);
 
@@ -328,10 +474,12 @@ fn fresnel(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> f32 {
     ((rs * rs + rp * rp) / 2.0).max(0.0).min(1.0)
 }
 
+#[inline(always)]
 fn reflect(incident: &Vector3, normal: &Vector3) -> Vector3 {
     *incident - *normal * 2.0 * normal.dot(*incident)
 }
 
+#[inline(always)]
 fn color_multiply(color: Color, intensity: f32) -> Color {
     Color::new(
         (color.r as f32 * intensity).min(255.0).max(0.0) as u8,
@@ -341,6 +489,7 @@ fn color_multiply(color: Color, intensity: f32) -> Color {
     )
 }
 
+#[inline(always)]
 fn color_add(a: Color, b: Color) -> Color {
     Color::new(
         (a.r as u16 + b.r as u16).min(255) as u8,
@@ -350,23 +499,14 @@ fn color_add(a: Color, b: Color) -> Color {
     )
 }
 
+#[inline(always)]
 fn color_blend(surface: Color, other: Color, weight: f32) -> Color {
     let surface_weight = 1.0 - weight;
     Color::new(
         ((surface.r as f32 * surface_weight + other.r as f32 * weight).min(255.0)) as u8,
         ((surface.g as f32 * surface_weight + other.g as f32 * weight).min(255.0)) as u8,
-        ((surface.b as f32 * surface_weight + other.b as f32 * weight).min(255.0)) as u8, // FIXED: was other.g
+        ((surface.b as f32 * surface_weight + other.b as f32 * weight).min(255.0)) as u8,
         surface.a,
-    )
-}
-
-// Additive blending for accumulating reflection/refraction
-fn color_blend_weighted(base: Color, add: Color, weight: f32) -> Color {
-    Color::new(
-        ((base.r as f32 + add.r as f32 * weight).min(255.0)) as u8,
-        ((base.g as f32 + add.g as f32 * weight).min(255.0)) as u8,
-        ((base.b as f32 + add.b as f32 * weight).min(255.0)) as u8,
-        base.a,
     )
 }
 
@@ -380,10 +520,8 @@ pub fn apply_bloom_optimized(
     let width = (framebuffer.width() / downsample) as usize;
     let height = (framebuffer.height() / downsample) as usize;
 
-    // Get ALL pixel data once (this is the key - one operation instead of millions)
     let original_pixels = framebuffer.color_buffer.get_image_data();
 
-    // Extract bright pixels at lower resolution
     let mut small_bright = vec![Color::new(0, 0, 0, 255); width * height];
 
     for y in 0..height {
@@ -401,10 +539,8 @@ pub fn apply_bloom_optimized(
         }
     }
 
-    // Blur at lower resolution
     let blurred = blur_pixels(&small_bright, width, height, blur_radius);
 
-    // Blend back
     for y in 0..framebuffer.height() {
         for x in 0..framebuffer.width() {
             let small_x = ((x / downsample).min(width as i32 - 1)) as usize;
@@ -459,4 +595,69 @@ fn blur_pixels(pixels: &[Color], width: usize, height: usize, radius: i32) -> Ve
     }
 
     blurred
+}
+
+#[inline(always)]
+pub fn get_stratified_sample_on_sphere(index: usize, total_samples: usize, radius: f32) -> Vector3 {
+    const PHI: f32 = 1.618033988749895;
+
+    let i = index as f32;
+    let n = total_samples as f32;
+
+    let y = 1.0 - (i / (n - 1.0)) * 2.0;
+
+    let radius_at_y = (1.0 - y * y).sqrt();
+
+    let theta = 2.0 * PI * i / PHI;
+
+    let x = theta.cos() * radius_at_y;
+    let z = theta.sin() * radius_at_y;
+
+    Vector3::new(x, y, z) * radius
+}
+
+pub fn get_grid_sample_on_sphere(index: usize, total_samples: usize, radius: f32) -> Vector3 {
+    let sample = match total_samples {
+        4 => match index {
+            0 => Vector3::new(1.0, 0.0, 0.0),
+            1 => Vector3::new(-1.0, 0.0, 0.0),
+            2 => Vector3::new(0.0, 1.0, 0.0),
+            3 => Vector3::new(0.0, -1.0, 0.0),
+            _ => Vector3::new(0.0, 0.0, 1.0),
+        },
+        8 => {
+            let x = if index & 1 == 0 { 1.0 } else { -1.0 };
+            let y = if index & 2 == 0 { 1.0 } else { -1.0 };
+            let z = if index & 4 == 0 { 1.0 } else { -1.0 };
+            Vector3::new(x, y, z).normalized()
+        }
+        16 => {
+            let layer = index / 4;
+            let corner = index % 4;
+
+            let y = match layer {
+                0 => 1.0,
+                1 | 2 => 0.0,
+                _ => -1.0,
+            };
+
+            let angle = corner as f32 * PI / 2.0;
+            let x = angle.cos();
+            let z = angle.sin();
+
+            Vector3::new(x, y, z).normalized()
+        }
+        _ => {
+            let i = index as f32;
+            let n = total_samples as f32;
+            let y = 1.0 - (i / (n - 1.0).max(1.0)) * 2.0;
+            let radius_at_y = (1.0 - y * y).sqrt();
+            let theta = 2.0 * PI * i / 1.618033988749895;
+            let x = theta.cos() * radius_at_y;
+            let z = theta.sin() * radius_at_y;
+            Vector3::new(x, y, z)
+        }
+    };
+
+    sample * radius
 }

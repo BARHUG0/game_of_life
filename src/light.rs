@@ -5,6 +5,7 @@ pub struct Light {
     pub position: Vector3,
     pub intensity: f32,
     pub color: Color,
+    pub radius: f32, // NEW: For soft shadows
 }
 
 impl Light {
@@ -13,6 +14,17 @@ impl Light {
             position,
             intensity,
             color,
+            radius: 0.0, // Default to hard shadows
+        }
+    }
+
+    // NEW: Constructor with radius for soft shadows
+    pub fn soft(position: Vector3, intensity: f32, color: Color, radius: f32) -> Self {
+        Light {
+            position,
+            intensity,
+            color,
+            radius,
         }
     }
 
@@ -21,6 +33,7 @@ impl Light {
             position,
             intensity,
             color: Color::WHITE,
+            radius: 0.0,
         }
     }
 
@@ -29,14 +42,12 @@ impl Light {
             position,
             intensity,
             color,
+            radius: 0.0,
         }
     }
 
-    // Calculate light intensity with distance attenuation
     pub fn get_intensity_at(&self, point: &Vector3) -> f32 {
         let distance = (self.position - *point).length();
-        // Attenuation formula: intensity / (1 + distance^2)
-        // This prevents division by zero and gives smooth falloff
         self.intensity / (1.0 + distance * distance * 0.1)
     }
 }
