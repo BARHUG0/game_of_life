@@ -22,10 +22,10 @@ const WINDOW_HEIGHT: i32 = 1000;
 const FRAMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
 const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
 
-// LIGHT CONFIGURATION - ADJUSTED for better balance
+// LIGHT CONFIGURATION
 const NUM_LIGHTS: usize = 3;
 
-// Light 0 - White key light (reduced from 15.0)
+// Light 0 - White key light
 const LIGHT_0_POSITION: Vector3 = Vector3 {
     x: 3.0,
     y: 5.0,
@@ -39,7 +39,7 @@ const LIGHT_0_COLOR: Color = Color {
     a: 255,
 };
 
-// Light 1 - Red fill light (reduced from 8.0)
+// Light 1 - Red fill light
 const LIGHT_1_POSITION: Vector3 = Vector3 {
     x: -4.0,
     y: 2.0,
@@ -53,7 +53,7 @@ const LIGHT_1_COLOR: Color = Color {
     a: 255,
 };
 
-// Light 2 - Blue rim light (reduced from 8.0)
+// Light 2 - Blue rim light
 const LIGHT_2_POSITION: Vector3 = Vector3 {
     x: 0.0,
     y: -3.0,
@@ -75,7 +75,7 @@ fn game_loop() {
     let (mut handle, raylib_thread) = raylib::init()
         .undecorated()
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
-        .title("raylib")
+        .title("Raytracer - Shadows & Reflections")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
@@ -83,7 +83,7 @@ fn game_loop() {
 
     framebuffer.set_background_color(Color::new(80, 80, 200, 255));
 
-    // Create cube with per-face materials
+    // Create a colorful cube (non-reflective)
     let cube = Cube::new(
         Vector3::new(-1.0, -1.0, -1.0),
         Vector3::new(1.0, 1.0, 1.0),
@@ -97,7 +97,30 @@ fn game_loop() {
         ],
     );
 
-    let objects = vec![Object::Cube(cube)];
+    // Create a metallic sphere to the left
+    let sphere_metal = Sphere::new(
+        Vector3::new(-3.0, 0.0, 0.0),
+        1.0,
+        Material::METAL(Color::new(180, 180, 200, 255)),
+    );
+
+    // Create a mirror sphere to the right
+    let sphere_mirror = Sphere::new(Vector3::new(3.0, 0.0, 0.0), 1.0, Material::MIRROR());
+
+    // Create a small glass-like sphere in front
+
+    let sphere_glass = Sphere::new(
+        Vector3::new(0.0, 2.0, 2.0),
+        0.6,
+        Material::GLASS(), // Now has proper refraction!
+    );
+
+    let objects = vec![
+        Object::Cube(cube),
+        Object::Sphere(sphere_metal),
+        Object::Sphere(sphere_mirror),
+        Object::Sphere(sphere_glass),
+    ];
 
     let mut lights = vec![
         Light::new(LIGHT_0_POSITION, LIGHT_0_INTENSITY, LIGHT_0_COLOR),
@@ -114,6 +137,12 @@ fn game_loop() {
     let rotation_speed = PI as f32 / 100.0;
     let light_move_speed = 0.5;
     let mut selected_light: usize = 0;
+
+    println!("=== Controls ===");
+    println!("Arrow Keys: Rotate camera");
+    println!("1/2/3: Select light source");
+    println!("WASD + Q/E: Move selected light");
+    println!("================");
 
     while !&handle.window_should_close() {
         framebuffer.clear();
