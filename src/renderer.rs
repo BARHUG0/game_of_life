@@ -18,14 +18,17 @@ const LIGHT_ATTENUTATION: f32 = 0.7;
 
 const SHADOW_BIAS: f32 = 0.001;
 
-const SHADOW_SAMPLES: usize = 4;
-const SHADOW_SAMPLES_MIN: usize = 1;
-const SHADOW_SAMPLES_MAX: usize = 8;
+// OPTIMIZED: Reduced shadow samples for better performance
+const SHADOW_SAMPLES_MIN: usize = 1; // Changed from 1
+const SHADOW_SAMPLES_MAX: usize = 4; // Changed from 8
 
 const DISTANCE_NEAR: f32 = 5.0;
 const DISTANCE_FAR: f32 = 20.0;
-const SAMPLES_NEAR: usize = 8;
-const SAMPLES_FAR: usize = 2;
+const SAMPLES_NEAR: usize = 4; // Changed from 8
+const SAMPLES_FAR: usize = 1; // Changed from 2
+
+// NEW: Early termination threshold for recursion
+const MIN_RAY_CONTRIBUTION: f32 = 0.01; // Stop if ray contributes less than 1% to final color
 
 // NEW: Pre-collected emissive light source
 #[derive(Clone, Copy)]
@@ -127,20 +130,44 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
     emissive_lights
 }
 
+// NEW: Extended cast_ray signature with ray weight for early termination
 pub fn cast_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
-    bvh: &BVH, // NEW: Changed from objects slice to BVH
+    bvh: &BVH,
     lights: &[Light],
     emissive_lights: &[EmissiveLight],
     skybox: &Skybox,
     depth: u32,
 ) -> Color {
-    if depth >= MAX_RECURSION_DEPTH {
+    cast_ray_weighted(
+        ray_origin,
+        ray_direction,
+        bvh,
+        lights,
+        emissive_lights,
+        skybox,
+        depth,
+        1.0,
+    )
+}
+
+// NEW: Internal function with weight tracking for early termination
+fn cast_ray_weighted(
+    ray_origin: &Vector3,
+    ray_direction: &Vector3,
+    bvh: &BVH,
+    lights: &[Light],
+    emissive_lights: &[EmissiveLight],
+    skybox: &Skybox,
+    depth: u32,
+    weight: f32, // NEW: Track accumulated ray weight
+) -> Color {
+    // OPTIMIZED: Early termination based on ray contribution
+    if depth >= MAX_RECURSION_DEPTH || weight < MIN_RAY_CONTRIBUTION {
         return skybox.sample(ray_direction);
     }
 
-    // NEW: Use BVH for intersection instead of linear search
     let intersection = bvh.intersect(ray_origin, ray_direction);
 
     if !intersection.is_intersecting {
@@ -159,15 +186,13 @@ pub fn cast_ray(
 
     let view_dir = ray_direction.scale_by(-1.0);
 
-    // FIXED: Emissive materials now receive lighting like normal materials
-    // The emission is added at the end instead of bypassing lighting
     let surface_color = calculate_lighting(
         &intersection,
         &outward_normal,
         &view_dir,
         lights,
         emissive_lights,
-        bvh, // NEW: Pass BVH instead of objects
+        bvh,
         skybox,
     );
 
@@ -177,19 +202,21 @@ pub fn cast_ray(
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
 
-            let reflection_color = cast_ray(
+            // NEW: Pass weighted contribution for early termination
+            let new_weight = weight * material.reflectivity;
+            let reflection_color = cast_ray_weighted(
                 &reflect_origin,
                 &reflect_dir,
-                bvh, // NEW: Pass BVH
+                bvh,
                 lights,
                 emissive_lights,
                 skybox,
                 depth + 1,
+                new_weight, // NEW: Track reflection weight
             );
 
             let blended = color_blend(surface_color, reflection_color, material.reflectivity);
 
-            // Add emission for emissive materials
             if material.emission_strength > 0.0 {
                 let emission_color = color_multiply(material.emission, material.emission_strength);
                 return color_add(blended, emission_color);
@@ -198,7 +225,6 @@ pub fn cast_ray(
             return blended;
         }
 
-        // Add emission for emissive materials without reflection
         if material.emission_strength > 0.0 {
             let emission_color = color_multiply(material.emission, material.emission_strength);
             return color_add(surface_color, emission_color);
@@ -207,7 +233,7 @@ pub fn cast_ray(
         return surface_color;
     }
 
-    // FIXED: Proper Fresnel-weighted transparency blending
+    // Handle transparent materials
     let (n1, n2) = if is_entering {
         (1.0, material.refractive_index)
     } else {
@@ -217,59 +243,67 @@ pub fn cast_ray(
     let kr = fresnel(&ray_direction, &outward_normal, n1, n2);
     let kt = 1.0 - kr;
 
-    // Start with surface contribution weighted by opacity
     let mut final_color = color_multiply(surface_color, 1.0 - material.transparency);
 
-    // Handle reflection component
+    // OPTIMIZED: Only trace reflection if contribution is meaningful
     if kr > 0.0 && material.transparency > 0.0 {
-        let reflect_dir = reflect(&ray_direction, &outward_normal);
-        let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
+        let reflection_weight = kr * material.transparency;
 
-        let reflection_color = cast_ray(
-            &reflect_origin,
-            &reflect_dir,
-            bvh, // NEW: Pass BVH
-            lights,
-            emissive_lights,
-            skybox,
-            depth + 1,
-        );
+        // NEW: Skip reflection if contribution too small
+        if weight * reflection_weight >= MIN_RAY_CONTRIBUTION {
+            let reflect_dir = reflect(&ray_direction, &outward_normal);
+            let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
 
-        // FIXED: Add reflection weighted by Fresnel and transparency
-        final_color = color_add(
-            final_color,
-            color_multiply(reflection_color, kr * material.transparency),
-        );
-    }
-
-    // Handle refraction component
-    if kt > 0.0 && material.transparency > 0.0 {
-        if let Some(refract_dir) = refract(&ray_direction, &outward_normal, n1, n2) {
-            let refract_origin = if is_entering {
-                intersection.point - outward_normal * SHADOW_BIAS
-            } else {
-                intersection.point + outward_normal * SHADOW_BIAS
-            };
-
-            let refraction_color = cast_ray(
-                &refract_origin,
-                &refract_dir,
-                bvh, // NEW: Pass BVH
+            let reflection_color = cast_ray_weighted(
+                &reflect_origin,
+                &reflect_dir,
+                bvh,
                 lights,
                 emissive_lights,
                 skybox,
                 depth + 1,
+                weight * reflection_weight, // NEW: Track weight
             );
 
-            // FIXED: Add refraction weighted by transmission and transparency
             final_color = color_add(
                 final_color,
-                color_multiply(refraction_color, kt * material.transparency),
+                color_multiply(reflection_color, reflection_weight),
             );
         }
     }
 
-    // Add emission for transparent emissive materials
+    // OPTIMIZED: Only trace refraction if contribution is meaningful
+    if kt > 0.0 && material.transparency > 0.0 {
+        let refraction_weight = kt * material.transparency;
+
+        // NEW: Skip refraction if contribution too small
+        if weight * refraction_weight >= MIN_RAY_CONTRIBUTION {
+            if let Some(refract_dir) = refract(&ray_direction, &outward_normal, n1, n2) {
+                let refract_origin = if is_entering {
+                    intersection.point - outward_normal * SHADOW_BIAS
+                } else {
+                    intersection.point + outward_normal * SHADOW_BIAS
+                };
+
+                let refraction_color = cast_ray_weighted(
+                    &refract_origin,
+                    &refract_dir,
+                    bvh,
+                    lights,
+                    emissive_lights,
+                    skybox,
+                    depth + 1,
+                    weight * refraction_weight, // NEW: Track weight
+                );
+
+                final_color = color_add(
+                    final_color,
+                    color_multiply(refraction_color, refraction_weight),
+                );
+            }
+        }
+    }
+
     if material.emission_strength > 0.0 {
         let emission_color = color_multiply(material.emission, material.emission_strength);
         final_color = color_add(final_color, emission_color);
@@ -373,7 +407,7 @@ fn calculate_adaptive_visibility_with_distance(
     point: &Vector3,
     normal: &Vector3,
     light: &Light,
-    bvh: &BVH, // NEW: Changed from objects slice to BVH
+    bvh: &BVH,
     distance_from_camera: f32,
 ) -> f32 {
     let sample_count = calculate_sample_count_for_distance(distance_from_camera);
@@ -381,6 +415,7 @@ fn calculate_adaptive_visibility_with_distance(
     let mut hit_count = 0;
     let mut total_samples = 0;
 
+    // OPTIMIZED: Early exit strategy - sample minimum first
     for sample_idx in 0..SHADOW_SAMPLES_MIN {
         let sample_offset = get_stratified_sample_on_sphere(sample_idx, sample_count, light.radius);
         let sample_position = light.position + sample_offset;
@@ -395,14 +430,16 @@ fn calculate_adaptive_visibility_with_distance(
         total_samples += 1;
     }
 
+    // OPTIMIZED: If all samples hit or all miss, early exit
     if hit_count == SHADOW_SAMPLES_MIN {
-        return 1.0;
+        return 1.0; // Fully lit
     }
 
     if hit_count == 0 {
-        return 0.0;
+        return 0.0; // Fully shadowed
     }
 
+    // Only continue sampling if we got partial shadow
     for sample_idx in SHADOW_SAMPLES_MIN..sample_count {
         let sample_offset = get_stratified_sample_on_sphere(sample_idx, sample_count, light.radius);
         let sample_position = light.position + sample_offset;
