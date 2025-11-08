@@ -26,6 +26,10 @@ impl Sphere {
     pub fn radius(&self) -> f32 {
         self.radius
     }
+
+    pub fn material(&self) -> Material {
+        self.material
+    }
 }
 
 impl RayIntersect for Sphere {

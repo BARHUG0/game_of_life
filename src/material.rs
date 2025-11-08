@@ -176,19 +176,6 @@ impl Material {
         }
     }
 
-    pub fn NEON(color: Color) -> Self {
-        Material {
-            diffuse: color,
-            albedo: [0.1, 0.2, 0.0],
-            specular: 50.0,
-            reflectivity: 0.0,
-            transparency: 0.0,
-            refractive_index: 1.0,
-            emission: color,
-            emission_strength: 3.0,
-        }
-    }
-
     pub fn LAVA() -> Self {
         Material {
             diffuse: Color::new(255, 100, 0, 255),

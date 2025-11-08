@@ -8,6 +8,7 @@ use raylib::prelude::*;
 const BACKGROUND_COLOR: Color = Color::new(4, 12, 36, 255);
 const SHADOW_BIAS: f32 = 0.001;
 const MAX_RECURSION_DEPTH: u32 = 4;
+const LIGHT_ATTENUTATION: f32 = 0.7;
 
 pub fn render(
     framebuffer: &mut Framebuffer,
@@ -166,6 +167,7 @@ fn calculate_lighting(
     let mut diffuse_color = color_multiply(material.diffuse, ambient * material.albedo[0]);
     let mut specular_color = Color::new(0, 0, 0, 255);
 
+    // 1. Process regular lights
     for light in lights {
         let light_dir = (light.position - intersection.point).normalized();
         let light_distance = (light.position - intersection.point).length();
@@ -190,6 +192,52 @@ fn calculate_lighting(
         }
     }
 
+    // 2. Process emissive objects as light sources
+    for (idx, object) in objects.iter().enumerate() {
+        let obj_material = match object {
+            Object::Sphere(sphere) => sphere.material(),
+            Object::Cube(_) => continue,
+        };
+
+        if obj_material.emission_strength < 0.5 {
+            continue;
+        }
+
+        let emissive_pos = match object {
+            Object::Sphere(sphere) => sphere.center(),
+            Object::Cube(_) => continue,
+        };
+
+        let light_dir = (emissive_pos - intersection.point).normalized();
+        let light_distance = (emissive_pos - intersection.point).length();
+        let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
+
+        // KEY FIX: Check shadows but exclude this specific emissive object
+        if !cast_shadow_ray_excluding(&shadow_origin, &light_dir, light_distance, objects, idx) {
+            let base_intensity = obj_material.emission_strength;
+            let light_intensity =
+                base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
+
+            // Diffuse from emissive object
+            let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
+            let diffuse_contribution = color_multiply(
+                obj_material.emission,
+                diffuse_intensity * material.albedo[0],
+            );
+            diffuse_color = color_add(diffuse_color, diffuse_contribution);
+
+            // Specular from emissive object
+            let reflect_dir = reflect(&light_dir, normal);
+            let specular_intensity =
+                view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light_intensity;
+            let specular_contribution = color_multiply(
+                obj_material.emission,
+                specular_intensity * material.albedo[1],
+            );
+            specular_color = color_add(specular_color, specular_contribution);
+        }
+    }
+
     color_add(diffuse_color, specular_color)
 }
 
@@ -202,6 +250,30 @@ fn cast_shadow_ray(
     for object in objects {
         let intersection = object.ray_intersect(ray_origin, ray_direction);
         // Ignore transparent objects in shadow calculation (light passes through)
+        if intersection.is_intersecting()
+            && intersection.distance() < light_distance
+            && intersection.material().transparency < 0.5
+        {
+            return true;
+        }
+    }
+    false
+}
+
+// Add this new function below cast_shadow_ray:
+fn cast_shadow_ray_excluding(
+    ray_origin: &Vector3,
+    ray_direction: &Vector3,
+    light_distance: f32,
+    objects: &[Object],
+    exclude_idx: usize,
+) -> bool {
+    for (idx, object) in objects.iter().enumerate() {
+        if idx == exclude_idx {
+            continue; // Skip the emissive object itself
+        }
+
+        let intersection = object.ray_intersect(ray_origin, ray_direction);
         if intersection.is_intersecting()
             && intersection.distance() < light_distance
             && intersection.material().transparency < 0.5
@@ -296,4 +368,95 @@ fn color_blend_weighted(base: Color, add: Color, weight: f32) -> Color {
         ((base.b as f32 + add.b as f32 * weight).min(255.0)) as u8,
         base.a,
     )
+}
+
+pub fn apply_bloom_optimized(
+    framebuffer: &mut Framebuffer,
+    threshold: f32,
+    blur_radius: i32,
+    intensity: f32,
+    downsample: i32,
+) {
+    let width = (framebuffer.width() / downsample) as usize;
+    let height = (framebuffer.height() / downsample) as usize;
+
+    // Get ALL pixel data once (this is the key - one operation instead of millions)
+    let original_pixels = framebuffer.color_buffer.get_image_data();
+
+    // Extract bright pixels at lower resolution
+    let mut small_bright = vec![Color::new(0, 0, 0, 255); width * height];
+
+    for y in 0..height {
+        for x in 0..width {
+            let orig_x = (x * downsample as usize).min(framebuffer.width() as usize - 1);
+            let orig_y = (y * downsample as usize).min(framebuffer.height() as usize - 1);
+            let idx = orig_y * framebuffer.width() as usize + orig_x;
+
+            let color = original_pixels[idx];
+            let brightness = (color.r as f32 + color.g as f32 + color.b as f32) / (3.0 * 255.0);
+
+            if brightness > threshold {
+                small_bright[y * width + x] = color;
+            }
+        }
+    }
+
+    // Blur at lower resolution
+    let blurred = blur_pixels(&small_bright, width, height, blur_radius);
+
+    // Blend back
+    for y in 0..framebuffer.height() {
+        for x in 0..framebuffer.width() {
+            let small_x = ((x / downsample).min(width as i32 - 1)) as usize;
+            let small_y = ((y / downsample).min(height as i32 - 1)) as usize;
+            let idx = y as usize * framebuffer.width() as usize + x as usize;
+
+            let original = original_pixels[idx];
+            let bloom = blurred[small_y * width + small_x];
+
+            let final_color = Color::new(
+                ((original.r as f32 + bloom.r as f32 * intensity).min(255.0)) as u8,
+                ((original.g as f32 + bloom.g as f32 * intensity).min(255.0)) as u8,
+                ((original.b as f32 + bloom.b as f32 * intensity).min(255.0)) as u8,
+                255,
+            );
+
+            framebuffer.color_buffer.draw_pixel(x, y, final_color);
+        }
+    }
+}
+
+fn blur_pixels(pixels: &[Color], width: usize, height: usize, radius: i32) -> Vec<Color> {
+    let mut blurred = vec![Color::new(0, 0, 0, 255); width * height];
+
+    for y in 0..height {
+        for x in 0..width {
+            let mut r_sum = 0u32;
+            let mut g_sum = 0u32;
+            let mut b_sum = 0u32;
+            let mut count = 0u32;
+
+            for dy in -radius..=radius {
+                for dx in -radius..=radius {
+                    let nx = ((x as i32 + dx).clamp(0, width as i32 - 1)) as usize;
+                    let ny = ((y as i32 + dy).clamp(0, height as i32 - 1)) as usize;
+
+                    let color = pixels[ny * width + nx];
+                    r_sum += color.r as u32;
+                    g_sum += color.g as u32;
+                    b_sum += color.b as u32;
+                    count += 1;
+                }
+            }
+
+            blurred[y * width + x] = Color::new(
+                (r_sum / count) as u8,
+                (g_sum / count) as u8,
+                (b_sum / count) as u8,
+                255,
+            );
+        }
+    }
+
+    blurred
 }

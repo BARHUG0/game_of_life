@@ -22,6 +22,10 @@ const WINDOW_HEIGHT: i32 = 1000;
 const FRAMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
 const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
 
+const BLOOM_THRESHOLD: f32 = 0.5;
+const BLOOM_RADIUS: i32 = 2;
+const BLOOM_INTENSITY: f32 = 0.8;
+
 // LIGHT CONFIGURATION
 const NUM_LIGHTS: usize = 3;
 
@@ -112,7 +116,7 @@ fn game_loop() {
     let sphere_glass = Sphere::new(Vector3::new(0.0, 2.0, 2.0), 0.6, Material::GLASS());
 
     let sphere_emissive = Sphere::new(
-        Vector3::new(-3.0, 2.0, 0.0),
+        Vector3::new(-4.0, 0.5, 2.0), // Closer and in front
         0.8,
         Material::EMISSIVE(Color::new(0, 255, 100, 255), 50.0),
     );
@@ -202,6 +206,16 @@ fn game_loop() {
         }
 
         render(&mut framebuffer, &objects, &camera, &lights);
+
+        /*
+                renderer::apply_bloom_optimized(
+                    &mut framebuffer,
+                    BLOOM_THRESHOLD,
+                    BLOOM_RADIUS,
+                    BLOOM_INTENSITY,
+                    4,
+                );
+        */
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
