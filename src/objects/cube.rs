@@ -34,12 +34,10 @@ impl Cube {
 
 impl RayIntersect for Cube {
     fn ray_intersect(&self, ray_origin: &Vector3, ray_direction: &Vector3) -> Intersect {
-        // Optimized slab method - processes all axes inline without function calls
         let mut tmin = f32::NEG_INFINITY;
         let mut tmax = f32::INFINITY;
         let mut hit_face: usize = 0;
 
-        // Process all three axes using array indexing for compactness
         let origins = [ray_origin.x, ray_origin.y, ray_origin.z];
         let directions = [ray_direction.x, ray_direction.y, ray_direction.z];
         let mins = [self.min.x, self.min.y, self.min.z];
@@ -52,16 +50,18 @@ impl RayIntersect for Cube {
             let max_val = maxs[axis];
 
             if direction.abs() > 1e-6 {
-                // Ray not parallel to slab
                 let inv_d = 1.0 / direction;
                 let mut t1 = (min_val - origin) * inv_d;
                 let mut t2 = (max_val - origin) * inv_d;
 
+                // FIXED: Correct face assignment after potential swap
                 let face = if t1 > t2 {
                     std::mem::swap(&mut t1, &mut t2);
-                    axis * 2 + 1 // negative face
+                    // After swap, t1 came from max boundary (positive face)
+                    axis * 2
                 } else {
-                    axis * 2 // positive face
+                    // t1 came from min boundary (negative face)
+                    axis * 2 + 1
                 };
 
                 if t1 > tmin {
@@ -71,19 +71,17 @@ impl RayIntersect for Cube {
 
                 tmax = tmax.min(t2);
             } else {
-                // Ray parallel to slab - check if inside
+                // Ray parallel to slab
                 if origin < min_val || origin > max_val {
                     return Intersect::empty();
                 }
             }
 
-            // Early exit if slabs don't overlap
             if tmin > tmax {
                 return Intersect::empty();
             }
         }
 
-        // Check if intersection is behind the ray
         if tmin < 0.0 {
             return Intersect::empty();
         }

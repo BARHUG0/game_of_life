@@ -7,7 +7,12 @@ use raylib::prelude::*;
 
 const BACKGROUND_COLOR: Color = Color::new(4, 12, 36, 255);
 
-pub fn render(framebuffer: &mut Framebuffer, objects: &[Object], camera: &Camera, light: &Light) {
+pub fn render(
+    framebuffer: &mut Framebuffer,
+    objects: &[Object],
+    camera: &Camera,
+    lights: &[Light],
+) {
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
 
@@ -26,7 +31,7 @@ pub fn render(framebuffer: &mut Framebuffer, objects: &[Object], camera: &Camera
             let ray_direction = Vector3::new(screen_x, screen_y, -1.0).normalized();
             let rotated_direction = camera.basis_change(&ray_direction);
 
-            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects, light);
+            let pixel_color = cast_ray(&camera.eye, &rotated_direction, objects, lights);
 
             framebuffer.set_foreground_color(pixel_color);
             framebuffer.set_pixel(x, y);
@@ -38,7 +43,7 @@ pub fn cast_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
     objects: &[Object],
-    light: &Light,
+    lights: &[Light],
 ) -> Color {
     let mut intersection = Intersect::empty();
     let mut zbuffer = f32::INFINITY;
@@ -55,32 +60,36 @@ pub fn cast_ray(
         return BACKGROUND_COLOR;
     }
 
-    // Calculate lighting vectors
-    let light_dir = (light.position - intersection.point).normalized();
     let view_dir = (*ray_origin - intersection.point).normalized();
     let normal = intersection.normal;
     let material = intersection.material();
 
-    // Diffuse lighting: intensity * max(0, N · L)
-    let diffuse_intensity = normal.dot(light_dir).max(0.0) * light.intensity;
+    // Ambient lighting
+    let ambient = 0.1;
+    let mut diffuse_color = color_multiply(material.diffuse, ambient);
+    let mut specular_color = Color::new(0, 0, 0, 255);
 
-    // Specular lighting: intensity * (V · R)^shininess
-    let reflect_dir = reflect(&light_dir, &normal);
-    let specular_intensity =
-        view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light.intensity;
+    // Accumulate lighting from all light sources
+    for light in lights {
+        let light_dir = (light.position - intersection.point).normalized();
 
-    // Ambient lighting (so dark sides aren't pure black)
-    let ambient = 0.2;
+        // Get attenuated light intensity based on distance
+        let light_intensity = light.get_intensity_at(&intersection.point);
 
-    // Combine lighting components
-    let diffuse_contribution = diffuse_intensity * material.albedo[0];
-    let specular_contribution = specular_intensity * material.albedo[1];
+        // Diffuse lighting
+        let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
+        let diffuse_contribution =
+            color_multiply(light.color, diffuse_intensity * material.albedo[0]);
+        diffuse_color = color_add(diffuse_color, diffuse_contribution);
 
-    // Apply diffuse to material color
-    let diffuse_color = color_multiply(material.diffuse, ambient + diffuse_contribution);
-
-    // Apply specular as white highlight
-    let specular_color = color_multiply(light.color, specular_contribution);
+        // Specular lighting
+        let reflect_dir = reflect(&light_dir, &normal);
+        let specular_intensity =
+            view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light_intensity;
+        let specular_contribution =
+            color_multiply(light.color, specular_intensity * material.albedo[1]);
+        specular_color = color_add(specular_color, specular_contribution);
+    }
 
     // Combine diffuse + specular
     color_add(diffuse_color, specular_color)

@@ -5,10 +5,6 @@ pub struct Material {
     pub diffuse: Color,
     pub albedo: [f32; 2], // [diffuse, specular] reflection coefficients
     pub specular: f32,    // Shininess exponent (higher = smaller, brighter highlight)
-                          // Future fields for lighting:
-                          // pub reflectivity: f32,
-                          // pub transparency: f32,
-                          // pub refractive_index: f32,
 }
 
 impl Material {
@@ -38,24 +34,26 @@ impl Material {
     pub fn RUBBER() -> Self {
         Material {
             diffuse: Color::new(80, 0, 0, 255),
-            albedo: [0.9, 0.1], // High diffuse, low specular
-            specular: 10.0,     // Soft highlight
+            albedo: [0.9, 0.1],
+            specular: 10.0,
         }
     }
 
     pub fn IVORY() -> Self {
         Material {
             diffuse: Color::new(100, 100, 80, 255),
-            albedo: [0.6, 0.3], // Medium diffuse, medium specular
-            specular: 50.0,     // Sharp highlight
+            albedo: [0.6, 0.3],
+            specular: 50.0,
         }
     }
 
+    // ADJUSTED: Reduced specular albedo and increased shininess
+    // This prevents over-bright specular highlights while keeping nice reflections
     pub fn simple(color: Color) -> Self {
         Material {
             diffuse: color,
-            albedo: [0.9, 0.5], // Default with some shine
-            specular: 32.0,     // Medium shininess
+            albedo: [0.9, 0.3], // Reduced from 0.5 to 0.3
+            specular: 50.0,     // Increased from 32.0 to 50.0 (tighter highlight)
         }
     }
 }
