@@ -1,3 +1,4 @@
+use crate::bvh::BVH; // NEW: Import BVH
 use crate::camera::Camera;
 use crate::framebuffer::Framebuffer;
 use crate::intersection::Intersect;
@@ -36,13 +37,13 @@ struct EmissiveLight {
 
 pub fn render(
     framebuffer: &mut Framebuffer,
-    objects: &[Object],
+    bvh: &BVH, // NEW: Changed from objects slice to BVH
     camera: &Camera,
     lights: &[Light],
     skybox: &Skybox,
 ) {
     // Pre-collect emissive objects into light sources
-    let emissive_lights = collect_emissive_lights(objects);
+    let emissive_lights = collect_emissive_lights(bvh.objects()); // NEW: Get objects from BVH
 
     let width = framebuffer.width() as f32;
     let height = framebuffer.height() as f32;
@@ -51,7 +52,7 @@ pub fn render(
     let fov = PI / 3.0;
     let perspective_scale = (fov * 0.5).tan() as f32;
 
-    // NEW: Create a thread-safe wrapper for framebuffer access
+    // Create a thread-safe wrapper for framebuffer access
     let fb_width = framebuffer.width();
     let fb_height = framebuffer.height();
 
@@ -59,7 +60,7 @@ pub fn render(
     let pixel_count = (fb_width * fb_height) as usize;
     let mut pixels: Vec<Color> = vec![Color::new(0, 0, 0, 255); pixel_count];
 
-    // NEW: Parallel iteration over all pixels
+    // Parallel iteration over all pixels
     pixels
         .par_iter_mut()
         .enumerate()
@@ -79,7 +80,7 @@ pub fn render(
             let pixel_color = cast_ray(
                 &camera.eye,
                 &rotated_direction,
-                objects,
+                bvh, // NEW: Pass BVH instead of objects
                 lights,
                 &emissive_lights,
                 skybox,
@@ -89,7 +90,7 @@ pub fn render(
             *pixel = pixel_color;
         });
 
-    // NEW: Write all pixels to framebuffer at once (single-threaded, but fast)
+    // Write all pixels to framebuffer at once (single-threaded, but fast)
     for (index, pixel) in pixels.iter().enumerate() {
         let x = (index as i32) % fb_width;
         let y = (index as i32) / fb_width;
@@ -129,9 +130,9 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
 pub fn cast_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
-    objects: &[Object],
+    bvh: &BVH, // NEW: Changed from objects slice to BVH
     lights: &[Light],
-    emissive_lights: &[EmissiveLight], // NEW: Pre-collected emissive lights
+    emissive_lights: &[EmissiveLight],
     skybox: &Skybox,
     depth: u32,
 ) -> Color {
@@ -139,16 +140,8 @@ pub fn cast_ray(
         return skybox.sample(ray_direction);
     }
 
-    let mut intersection = Intersect::empty();
-    let mut zbuffer = f32::INFINITY;
-
-    for object in objects {
-        let tmp = object.ray_intersect(ray_origin, ray_direction);
-        if tmp.is_intersecting() && tmp.distance() < zbuffer {
-            zbuffer = tmp.distance;
-            intersection = tmp;
-        }
-    }
+    // NEW: Use BVH for intersection instead of linear search
+    let intersection = bvh.intersect(ray_origin, ray_direction);
 
     if !intersection.is_intersecting {
         return skybox.sample(ray_direction);
@@ -173,8 +166,8 @@ pub fn cast_ray(
         &outward_normal,
         &view_dir,
         lights,
-        emissive_lights, // NEW: Pass emissive lights
-        objects,
+        emissive_lights,
+        bvh, // NEW: Pass BVH instead of objects
         skybox,
     );
 
@@ -187,7 +180,7 @@ pub fn cast_ray(
             let reflection_color = cast_ray(
                 &reflect_origin,
                 &reflect_dir,
-                objects,
+                bvh, // NEW: Pass BVH
                 lights,
                 emissive_lights,
                 skybox,
@@ -235,7 +228,7 @@ pub fn cast_ray(
         let reflection_color = cast_ray(
             &reflect_origin,
             &reflect_dir,
-            objects,
+            bvh, // NEW: Pass BVH
             lights,
             emissive_lights,
             skybox,
@@ -261,7 +254,7 @@ pub fn cast_ray(
             let refraction_color = cast_ray(
                 &refract_origin,
                 &refract_dir,
-                objects,
+                bvh, // NEW: Pass BVH
                 lights,
                 emissive_lights,
                 skybox,
@@ -290,8 +283,8 @@ fn calculate_lighting(
     normal: &Vector3,
     view_dir: &Vector3,
     lights: &[Light],
-    emissive_lights: &[EmissiveLight], // NEW: Pre-collected emissive lights
-    objects: &[Object],
+    emissive_lights: &[EmissiveLight],
+    bvh: &BVH, // NEW: Changed from objects slice to BVH
     skybox: &Skybox,
 ) -> Color {
     let material = intersection.material();
@@ -311,7 +304,7 @@ fn calculate_lighting(
                 &intersection.point,
                 normal,
                 light,
-                objects,
+                bvh, // NEW: Pass BVH
                 intersection.distance(),
             )
         } else {
@@ -319,7 +312,7 @@ fn calculate_lighting(
             let light_distance = (light.position - intersection.point).length();
             let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
-            if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+            if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
                 1.0
             } else {
                 0.0
@@ -352,7 +345,7 @@ fn calculate_lighting(
         let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
         // Cast shadow ray
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
             let base_intensity = emissive_light.strength;
             let light_intensity =
                 base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
@@ -380,7 +373,7 @@ fn calculate_adaptive_visibility_with_distance(
     point: &Vector3,
     normal: &Vector3,
     light: &Light,
-    objects: &[Object],
+    bvh: &BVH, // NEW: Changed from objects slice to BVH
     distance_from_camera: f32,
 ) -> f32 {
     let sample_count = calculate_sample_count_for_distance(distance_from_camera);
@@ -396,7 +389,7 @@ fn calculate_adaptive_visibility_with_distance(
         let light_distance = (sample_position - *point).length();
         let shadow_origin = *point + *normal * SHADOW_BIAS;
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
             hit_count += 1;
         }
         total_samples += 1;
@@ -418,7 +411,7 @@ fn calculate_adaptive_visibility_with_distance(
         let light_distance = (sample_position - *point).length();
         let shadow_origin = *point + *normal * SHADOW_BIAS;
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, objects) {
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
             hit_count += 1;
         }
         total_samples += 1;
@@ -443,17 +436,18 @@ fn cast_shadow_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
     light_distance: f32,
-    objects: &[Object],
+    bvh: &BVH, // NEW: Changed from objects slice to BVH
 ) -> bool {
-    for object in objects {
-        let intersection = object.ray_intersect(ray_origin, ray_direction);
-        if intersection.is_intersecting()
-            && intersection.distance() < light_distance
-            && intersection.material().transparency < 0.5
-        {
-            return true;
-        }
+    // NEW: Use BVH for shadow ray intersection
+    let intersection = bvh.intersect(ray_origin, ray_direction);
+
+    if intersection.is_intersecting()
+        && intersection.distance() < light_distance
+        && intersection.material().transparency < 0.5
+    {
+        return true;
     }
+
     false
 }
 

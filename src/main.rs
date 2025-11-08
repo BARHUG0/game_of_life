@@ -1,5 +1,6 @@
 #![allow(warnings)]
 
+mod bvh; // NEW: Add BVH module
 mod camera;
 mod day_night_cycle;
 mod framebuffer;
@@ -8,8 +9,9 @@ mod light;
 mod material;
 mod objects;
 mod renderer;
-mod skybox; // NEW: Add skybox module
+mod skybox;
 
+use bvh::BVH; // NEW: Import BVH
 use camera::Camera;
 use day_night_cycle::DayNightCycle;
 use framebuffer::Framebuffer;
@@ -18,7 +20,7 @@ use material::Material;
 use objects::{Cube, Object, Sphere};
 use raylib::prelude::*;
 use renderer::render;
-use skybox::{GradientSkybox, Skybox, SolidSkybox}; // Update this import
+use skybox::{GradientSkybox, Skybox, SolidSkybox};
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -26,7 +28,7 @@ const WINDOW_HEIGHT: i32 = 1000;
 const FRAMEBUFFER_WIDTH: i32 = WINDOW_WIDTH;
 const FRAMEBUFFER_HEIGHT: i32 = WINDOW_HEIGHT;
 
-const CYCLE_DURATION: f32 = 60.0; // 30 seconds for full cycle
+const CYCLE_DURATION: f32 = 60.0;
 const STARTING_TIME: f32 = 0.45;
 
 const BLOOM_THRESHOLD: f32 = 0.5;
@@ -86,7 +88,7 @@ fn game_loop() {
     let (mut handle, raylib_thread) = raylib::init()
         .undecorated()
         .size(WINDOW_WIDTH, WINDOW_HEIGHT)
-        .title("Raytracer - Shadows & Reflections")
+        .title("Raytracer - BVH Accelerated")
         .log_level(TraceLogLevel::LOG_WARNING)
         .build();
 
@@ -104,7 +106,7 @@ fn game_loop() {
     let moon_dir = day_night.get_moon_direction();
     let (moon_color, moon_intensity, moon_size) = day_night.get_moon_properties();
     let (halo_size, halo_intensity) = day_night.get_halo_properties();
-    let stars_intensity = day_night.get_star_intensity(); // NEW
+    let stars_intensity = day_night.get_star_intensity();
 
     let mut skybox = Skybox::Gradient(GradientSkybox::from_cycle(
         zenith,
@@ -120,7 +122,7 @@ fn game_loop() {
         moon_intensity,
         halo_size,
         halo_intensity,
-        stars_intensity, // NEW parameter
+        stars_intensity,
     ));
 
     // Create a colorful cube (non-reflective)
@@ -128,12 +130,12 @@ fn game_loop() {
         Vector3::new(-1.0, -1.0, -1.0),
         Vector3::new(1.0, 1.0, 1.0),
         [
-            Material::simple(Color::RED),    // +X
-            Material::simple(Color::BLUE),   // -X
-            Material::simple(Color::GREEN),  // +Y
-            Material::simple(Color::YELLOW), // -Y
-            Material::simple(Color::ORANGE), // +Z
-            Material::simple(Color::PURPLE), // -Z
+            Material::simple(Color::RED),
+            Material::simple(Color::BLUE),
+            Material::simple(Color::GREEN),
+            Material::simple(Color::YELLOW),
+            Material::simple(Color::ORANGE),
+            Material::simple(Color::PURPLE),
         ],
     );
 
@@ -148,11 +150,10 @@ fn game_loop() {
     let sphere_mirror = Sphere::new(Vector3::new(3.0, 0.0, 0.0), 1.0, Material::MIRROR());
 
     // Create a small glass-like sphere in front
-
     let sphere_glass = Sphere::new(Vector3::new(0.0, 2.0, 2.0), 0.6, Material::GLASS());
 
     let sphere_emissive = Sphere::new(
-        Vector3::new(-4.0, 0.5, 2.0), // Closer and in front
+        Vector3::new(-4.0, 0.5, 2.0),
         0.8,
         Material::EMISSIVE(Color::new(0, 255, 100, 255), 50.0),
     );
@@ -165,10 +166,15 @@ fn game_loop() {
         Object::Sphere(sphere_emissive),
     ];
 
+    // NEW: Build BVH from objects
+    println!("Building BVH...");
+    let bvh = BVH::build(objects);
+    println!("BVH built successfully!");
+
     let mut lights = vec![
-        Light::soft(LIGHT_0_POSITION, LIGHT_0_INTENSITY, LIGHT_0_COLOR, 0.8), // Soft white light
-        Light::soft(LIGHT_1_POSITION, LIGHT_1_INTENSITY, LIGHT_1_COLOR, 0.5), // Soft red light
-        Light::soft(LIGHT_2_POSITION, LIGHT_2_INTENSITY, LIGHT_2_COLOR, 0.6), // Soft blue light
+        Light::soft(LIGHT_0_POSITION, LIGHT_0_INTENSITY, LIGHT_0_COLOR, 0.8),
+        Light::soft(LIGHT_1_POSITION, LIGHT_1_INTENSITY, LIGHT_1_COLOR, 0.5),
+        Light::soft(LIGHT_2_POSITION, LIGHT_2_INTENSITY, LIGHT_2_COLOR, 0.6),
     ];
 
     let mut camera = Camera::new(
@@ -185,6 +191,9 @@ fn game_loop() {
     println!("Arrow Keys: Rotate camera");
     println!("1/2/3: Select light source");
     println!("WASD + Q/E: Move selected light");
+    println!("P: Pause/Resume time");
+    println!("T/G: Speed up/slow down time");
+    println!("R: Reverse time");
     println!("================");
 
     while !&handle.window_should_close() {
@@ -248,7 +257,7 @@ fn game_loop() {
         let moon_dir = day_night.get_moon_direction();
         let (moon_color, moon_intensity, moon_size) = day_night.get_moon_properties();
         let (halo_size, halo_intensity) = day_night.get_halo_properties();
-        let stars_intensity = day_night.get_star_intensity(); // NEW
+        let stars_intensity = day_night.get_star_intensity();
 
         skybox = Skybox::Gradient(GradientSkybox::from_cycle(
             zenith,
@@ -264,7 +273,7 @@ fn game_loop() {
             moon_intensity,
             halo_size,
             halo_intensity,
-            stars_intensity, // NEW parameter
+            stars_intensity,
         ));
 
         // Camera controls
@@ -301,18 +310,8 @@ fn game_loop() {
             lights[selected_light].position.y += light_move_speed;
         }
 
-        // NEW: Pass skybox to render
-        render(&mut framebuffer, &objects, &camera, &lights, &skybox);
-
-        /*
-                renderer::apply_bloom_optimized(
-                    &mut framebuffer,
-                    BLOOM_THRESHOLD,
-                    BLOOM_RADIUS,
-                    BLOOM_INTENSITY,
-                    4,
-                );
-        */
+        // NEW: Pass BVH to render instead of objects
+        render(&mut framebuffer, &bvh, &camera, &lights, &skybox);
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
