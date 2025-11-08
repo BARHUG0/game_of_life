@@ -6,8 +6,10 @@ use crate::objects::{Object, RayIntersect};
 use crate::skybox::Skybox;
 use rand::Rng;
 use raylib::prelude::*;
+use rayon::prelude::*; // NEW: For parallel iteration
 
 use std::f32::consts::PI;
+use std::sync::Mutex; // NEW: For thread-safe framebuffer access
 
 const MAX_RECURSION_DEPTH: u32 = 4;
 
@@ -39,7 +41,7 @@ pub fn render(
     lights: &[Light],
     skybox: &Skybox,
 ) {
-    // NEW: Pre-collect emissive objects into light sources
+    // Pre-collect emissive objects into light sources
     let emissive_lights = collect_emissive_lights(objects);
 
     let width = framebuffer.width() as f32;
@@ -49,8 +51,22 @@ pub fn render(
     let fov = PI / 3.0;
     let perspective_scale = (fov * 0.5).tan() as f32;
 
-    for y in 0..framebuffer.height() {
-        for x in 0..framebuffer.width() {
+    // NEW: Create a thread-safe wrapper for framebuffer access
+    let fb_width = framebuffer.width();
+    let fb_height = framebuffer.height();
+
+    // Pre-allocate pixel buffer for parallel writes
+    let pixel_count = (fb_width * fb_height) as usize;
+    let mut pixels: Vec<Color> = vec![Color::new(0, 0, 0, 255); pixel_count];
+
+    // NEW: Parallel iteration over all pixels
+    pixels
+        .par_iter_mut()
+        .enumerate()
+        .for_each(|(index, pixel)| {
+            let x = (index as i32) % fb_width;
+            let y = (index as i32) / fb_width;
+
             let screen_x = (2.0 * x as f32) / width - 1.0;
             let screen_y = -(2.0 * y as f32) / height + 1.0;
 
@@ -65,14 +81,20 @@ pub fn render(
                 &rotated_direction,
                 objects,
                 lights,
-                &emissive_lights, // NEW: Pass emissive lights
+                &emissive_lights,
                 skybox,
                 0,
             );
 
-            framebuffer.set_foreground_color(pixel_color);
-            framebuffer.set_pixel(x, y);
-        }
+            *pixel = pixel_color;
+        });
+
+    // NEW: Write all pixels to framebuffer at once (single-threaded, but fast)
+    for (index, pixel) in pixels.iter().enumerate() {
+        let x = (index as i32) % fb_width;
+        let y = (index as i32) / fb_width;
+        framebuffer.set_foreground_color(*pixel);
+        framebuffer.set_pixel(x, y);
     }
 }
 
