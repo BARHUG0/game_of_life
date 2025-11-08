@@ -31,7 +31,7 @@ const LIGHT_0_POSITION: Vector3 = Vector3 {
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 8.0;
+const LIGHT_0_INTENSITY: f32 = 0.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,
@@ -45,7 +45,7 @@ const LIGHT_1_POSITION: Vector3 = Vector3 {
     y: 2.0,
     z: 3.0,
 };
-const LIGHT_1_INTENSITY: f32 = 4.0;
+const LIGHT_1_INTENSITY: f32 = 0.0;
 const LIGHT_1_COLOR: Color = Color {
     r: 255,
     g: 100,
@@ -59,7 +59,7 @@ const LIGHT_2_POSITION: Vector3 = Vector3 {
     y: -3.0,
     z: 6.0,
 };
-const LIGHT_2_INTENSITY: f32 = 4.0;
+const LIGHT_2_INTENSITY: f32 = 0.0;
 const LIGHT_2_COLOR: Color = Color {
     r: 100,
     g: 150,
@@ -109,10 +109,12 @@ fn game_loop() {
 
     // Create a small glass-like sphere in front
 
-    let sphere_glass = Sphere::new(
-        Vector3::new(0.0, 2.0, 2.0),
-        0.6,
-        Material::GLASS(), // Now has proper refraction!
+    let sphere_glass = Sphere::new(Vector3::new(0.0, 2.0, 2.0), 0.6, Material::GLASS());
+
+    let sphere_emissive = Sphere::new(
+        Vector3::new(-3.0, 2.0, 0.0),
+        0.8,
+        Material::EMISSIVE(Color::new(0, 255, 100, 255), 50.0),
     );
 
     let objects = vec![
@@ -120,6 +122,7 @@ fn game_loop() {
         Object::Sphere(sphere_metal),
         Object::Sphere(sphere_mirror),
         Object::Sphere(sphere_glass),
+        Object::Sphere(sphere_emissive),
     ];
 
     let mut lights = vec![

@@ -8,6 +8,8 @@ pub struct Material {
     pub reflectivity: f32,
     pub transparency: f32,
     pub refractive_index: f32,
+    pub emission: Color,
+    pub emission_strength: f32,
 }
 
 impl Material {
@@ -18,6 +20,8 @@ impl Material {
         reflectivity: f32,
         transparency: f32,
         refractive_index: f32,
+        emission: Color,
+        emission_strength: f32,
     ) -> Self {
         Material {
             diffuse,
@@ -26,6 +30,8 @@ impl Material {
             reflectivity,
             transparency,
             refractive_index,
+            emission,
+            emission_strength,
         }
     }
 
@@ -41,6 +47,8 @@ impl Material {
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 }
@@ -55,6 +63,8 @@ impl Material {
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -66,6 +76,8 @@ impl Material {
             reflectivity: 0.2,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -77,6 +89,8 @@ impl Material {
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -88,6 +102,8 @@ impl Material {
             reflectivity: 0.9,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -99,6 +115,8 @@ impl Material {
             reflectivity: 0.5,
             transparency: 0.0,
             refractive_index: 1.0,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -110,7 +128,9 @@ impl Material {
             specular: 125.0,
             reflectivity: 0.1,
             transparency: 0.9,
-            refractive_index: 1.5, // Typical glass IOR
+            refractive_index: 1.5,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -123,6 +143,8 @@ impl Material {
             reflectivity: 0.1,
             transparency: 0.8,
             refractive_index: 1.33,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
         }
     }
 
@@ -133,7 +155,76 @@ impl Material {
             specular: 200.0,
             reflectivity: 0.2,
             transparency: 0.9,
-            refractive_index: 2.42, // Diamond has very high IOR
+            refractive_index: 2.42,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
+        }
+    }
+
+    // === EMISSIVE MATERIALS ===
+
+    pub fn EMISSIVE(color: Color, strength: f32) -> Self {
+        Material {
+            diffuse: color,
+            albedo: [0.2, 0.1, 0.0],
+            specular: 10.0,
+            reflectivity: 0.0,
+            transparency: 0.0,
+            refractive_index: 1.0,
+            emission: color,
+            emission_strength: strength,
+        }
+    }
+
+    pub fn NEON(color: Color) -> Self {
+        Material {
+            diffuse: color,
+            albedo: [0.1, 0.2, 0.0],
+            specular: 50.0,
+            reflectivity: 0.0,
+            transparency: 0.0,
+            refractive_index: 1.0,
+            emission: color,
+            emission_strength: 3.0,
+        }
+    }
+
+    pub fn LAVA() -> Self {
+        Material {
+            diffuse: Color::new(255, 100, 0, 255),
+            albedo: [0.3, 0.1, 0.0],
+            specular: 20.0,
+            reflectivity: 0.0,
+            transparency: 0.0,
+            refractive_index: 1.0,
+            emission: Color::new(255, 80, 0, 255),
+            emission_strength: 2.5,
+        }
+    }
+
+    pub fn LED(color: Color) -> Self {
+        Material {
+            diffuse: color,
+            albedo: [0.1, 0.3, 0.0],
+            specular: 80.0,
+            reflectivity: 0.1,
+            transparency: 0.0,
+            refractive_index: 1.0,
+            emission: color,
+            emission_strength: 4.0,
+        }
+    }
+
+    pub fn GLOW_GLASS(color: Color) -> Self {
+        Material {
+            diffuse: color,
+            albedo: [0.0, 0.4, 0.1],
+            specular: 125.0,
+            reflectivity: 0.1,
+            transparency: 0.8,
+            refractive_index: 1.5,
+            emission: color,
+            emission_strength: 1.5,
         }
     }
 }

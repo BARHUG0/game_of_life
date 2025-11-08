@@ -81,9 +81,14 @@ pub fn cast_ray(
 
     let view_dir = ray_direction.scale_by(-1.0);
 
-    // Calculate surface lighting (diffuse + specular)
-    let surface_color =
-        calculate_lighting(&intersection, &outward_normal, &view_dir, lights, objects);
+    // In cast_ray(), for emissive materials:
+    let surface_color = if material.emission_strength > 0.5 {
+        // Emissive objects use their diffuse color directly (no external lighting needed)
+        material.diffuse
+    } else {
+        // Normal objects get full lighting calculation
+        calculate_lighting(&intersection, &outward_normal, &view_dir, lights, objects)
+    };
 
     // For opaque materials, handle only reflection
     if material.transparency < 0.01 {
@@ -136,6 +141,12 @@ pub fn cast_ray(
             final_color =
                 color_blend_weighted(final_color, refraction_color, kt * material.transparency);
         }
+    }
+
+    // Add emission (always additive, independent of lighting)
+    if material.emission_strength > 0.0 {
+        let emission_color = color_multiply(material.emission, material.emission_strength);
+        final_color = color_add(final_color, emission_color);
     }
 
     final_color
