@@ -44,7 +44,7 @@ const LIGHT_0_POSITION: Vector3 = Vector3 {
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 4.0;
+const LIGHT_0_INTENSITY: f32 = 0.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,
@@ -58,7 +58,7 @@ const LIGHT_1_POSITION: Vector3 = Vector3 {
     y: 2.0,
     z: 3.0,
 };
-const LIGHT_1_INTENSITY: f32 = 8.0;
+const LIGHT_1_INTENSITY: f32 = 0.0;
 const LIGHT_1_COLOR: Color = Color {
     r: 255,
     g: 100,
@@ -72,7 +72,7 @@ const LIGHT_2_POSITION: Vector3 = Vector3 {
     y: -3.0,
     z: 6.0,
 };
-const LIGHT_2_INTENSITY: f32 = 4.0;
+const LIGHT_2_INTENSITY: f32 = 0.0;
 const LIGHT_2_COLOR: Color = Color {
     r: 100,
     g: 150,
@@ -126,9 +126,9 @@ fn game_loop() {
     ));
 
     // Create a colorful cube (non-reflective)
-    let cube = Cube::new(
-        Vector3::new(-1.0, -1.0, -1.0),
-        Vector3::new(1.0, 1.0, 1.0),
+    let cube = Cube::new_with_center(
+        Vector3::new(0.0, 0.0, 0.0),
+        2.0,
         [
             Material::simple(Color::RED),
             Material::simple(Color::BLUE),
@@ -140,30 +140,32 @@ fn game_loop() {
     );
 
     // Create a metallic sphere to the left
-    let sphere_metal = Sphere::new(
+    let cube_metal = Cube::new_with_center(
         Vector3::new(-3.0, 0.0, 0.0),
         1.0,
-        Material::METAL(Color::new(180, 180, 200, 255)),
+        [Material::METAL(Color::new(180, 180, 200, 255)); 6],
     );
 
     // Create a mirror sphere to the right
-    let sphere_mirror = Sphere::new(Vector3::new(3.0, 0.0, 0.0), 1.0, Material::MIRROR());
+    let cube_mirror =
+        Cube::new_with_center(Vector3::new(3.0, 0.0, 0.0), 1.0, [Material::MIRROR(); 6]);
 
     // Create a small glass-like sphere in front
-    let sphere_glass = Sphere::new(Vector3::new(0.0, 2.0, 2.0), 0.6, Material::GLASS());
+    let cube_glass =
+        Cube::new_with_center(Vector3::new(0.0, 2.0, 2.0), 0.6, [Material::GLASS(); 6]);
 
-    let sphere_emissive = Sphere::new(
+    let cube_emissive = Cube::new_with_center(
         Vector3::new(-4.0, 0.5, 2.0),
         0.8,
-        Material::EMISSIVE(Color::new(0, 255, 100, 255), 50.0),
+        [Material::EMISSIVE(Color::new(0, 255, 100, 255), 6.0); 6],
     );
 
     let objects = vec![
         Object::Cube(cube),
-        Object::Sphere(sphere_metal),
-        Object::Sphere(sphere_mirror),
-        Object::Sphere(sphere_glass),
-        Object::Sphere(sphere_emissive),
+        Object::Cube(cube_metal),
+        Object::Cube(cube_mirror),
+        Object::Cube(cube_glass),
+        Object::Cube(cube_emissive),
     ];
 
     // NEW: Build BVH from objects

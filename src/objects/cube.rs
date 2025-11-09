@@ -7,14 +7,30 @@ use raylib::prelude::*;
 pub struct Cube {
     pub min: Vector3,
     pub max: Vector3,
+    pub center: Vector3,
     pub materials: [Material; 6], // +X, -X, +Y, -Y, +Z, -Z
 }
 
 impl Cube {
-    pub fn new(min: Vector3, max: Vector3, materials: [Material; 6]) -> Self {
+    pub fn new(min: Vector3, max: Vector3, center: Vector3, materials: [Material; 6]) -> Self {
         Cube {
             min,
             max,
+            center,
+            materials,
+        }
+    }
+
+    pub fn new_with_center(
+        center: Vector3,
+        size: f32, // same size on all axes
+        materials: [Material; 6],
+    ) -> Self {
+        let half = size * 0.5;
+        Cube {
+            min: center - Vector3::new(half, half, half),
+            max: center + Vector3::new(half, half, half),
+            center,
             materials,
         }
     }
@@ -54,14 +70,12 @@ impl RayIntersect for Cube {
                 let mut t1 = (min_val - origin) * inv_d;
                 let mut t2 = (max_val - origin) * inv_d;
 
-                // FIXED: Correct face assignment after potential swap
+                // In cube.rs, ray_intersect method:
                 let face = if t1 > t2 {
                     std::mem::swap(&mut t1, &mut t2);
-                    // After swap, t1 came from max boundary (positive face)
-                    axis * 2
+                    axis * 2 + 1 // FIX: Swapped = negative face
                 } else {
-                    // t1 came from min boundary (negative face)
-                    axis * 2 + 1
+                    axis * 2 // Normal = positive face  
                 };
 
                 if t1 > tmin {

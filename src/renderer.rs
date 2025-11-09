@@ -102,23 +102,38 @@ pub fn render(
     }
 }
 
-// NEW: Function to pre-collect emissive objects as light sources
 fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
     let mut emissive_lights = Vec::new();
 
     for object in objects {
-        let material = match object {
-            Object::Sphere(sphere) => sphere.material(),
-            Object::Cube(_) => continue, // Skip cubes for now
+        let (material, position) = match object {
+            Object::Sphere(sphere) => (sphere.material(), sphere.center()),
+            Object::Cube(cube) => {
+                // For cubes, we need to check if ANY face is emissive
+                // Use the first face's material and the cube's center
+                let materials = cube.materials;
+                let has_emission = materials.iter().any(|m| m.emission_strength > 0.5);
+
+                if !has_emission {
+                    continue;
+                }
+
+                // Use the material with strongest emission
+                let best_material = materials
+                    .iter()
+                    .max_by(|a, b| {
+                        a.emission_strength
+                            .partial_cmp(&b.emission_strength)
+                            .unwrap()
+                    })
+                    .unwrap();
+
+                (*best_material, cube.center)
+            }
         };
 
         // Only collect objects with meaningful emission
         if material.emission_strength > 0.5 {
-            let position = match object {
-                Object::Sphere(sphere) => sphere.center(),
-                Object::Cube(_) => continue,
-            };
-
             emissive_lights.push(EmissiveLight {
                 position,
                 color: material.emission,
@@ -378,8 +393,10 @@ fn calculate_lighting(
         let light_distance = (emissive_light.position - intersection.point).length();
         let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
+        let is_shadowed = cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh);
+
         // Cast shadow ray
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
+        if !is_shadowed {
             let base_intensity = emissive_light.strength;
             let light_intensity =
                 base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
@@ -473,19 +490,27 @@ fn cast_shadow_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
     light_distance: f32,
-    bvh: &BVH, // NEW: Changed from objects slice to BVH
+    bvh: &BVH,
 ) -> bool {
-    // NEW: Use BVH for shadow ray intersection
     let intersection = bvh.intersect(ray_origin, ray_direction);
 
-    if intersection.is_intersecting()
-        && intersection.distance() < light_distance
-        && intersection.material().transparency < 0.5
-    {
-        return true;
+    if intersection.is_intersecting() {
+        let material = intersection.material();
+        let distance = intersection.distance();
+
+        // If we hit an emissive surface before or at the target distance,
+        // we've reached a light source - not shadowed
+        if material.emission_strength > 0.5 && distance <= light_distance + 0.01 {
+            return false; // Hit a light source
+        }
+
+        // If we hit an opaque object before reaching the light, it's blocked
+        if distance < light_distance && material.transparency < 0.5 {
+            return true; // Shadowed by opaque object
+        }
     }
 
-    false
+    false // Not shadowed
 }
 
 fn refract(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> Option<Vector3> {
