@@ -21,11 +21,7 @@ impl Cube {
         }
     }
 
-    pub fn new_with_center(
-        center: Vector3,
-        size: f32, // same size on all axes
-        materials: [Material; 6],
-    ) -> Self {
+    pub fn new_with_center(center: Vector3, size: f32, materials: [Material; 6]) -> Self {
         let half = size * 0.5;
         Cube {
             min: center - Vector3::new(half, half, half),
@@ -43,7 +39,25 @@ impl Cube {
             3 => Vector3::new(0.0, -1.0, 0.0), // -Y
             4 => Vector3::new(0.0, 0.0, 1.0),  // +Z
             5 => Vector3::new(0.0, 0.0, -1.0), // -Z
-            _ => Vector3::new(0.0, 1.0, 0.0),  // fallback
+            _ => Vector3::new(0.0, 1.0, 0.0),
+        }
+    }
+
+    // NEW: Calculate UV coordinates for a face based on hit point
+    fn calculate_uv(&self, point: &Vector3, face: usize) -> Vector2 {
+        // Normalize point to [0, 1] range within the cube
+        let local_x = (point.x - self.min.x) / (self.max.x - self.min.x);
+        let local_y = (point.y - self.min.y) / (self.max.y - self.min.y);
+        let local_z = (point.z - self.min.z) / (self.max.z - self.min.z);
+
+        match face {
+            0 => Vector2::new(1.0 - local_z, 1.0 - local_y), // +X face (looking at -X)
+            1 => Vector2::new(local_z, 1.0 - local_y),       // -X face (looking at +X)
+            2 => Vector2::new(local_x, 1.0 - local_z),       // +Y face (looking down)
+            3 => Vector2::new(local_x, local_z),             // -Y face (looking up)
+            4 => Vector2::new(local_x, 1.0 - local_y),       // +Z face (looking at -Z)
+            5 => Vector2::new(1.0 - local_x, 1.0 - local_y), // -Z face (looking at +Z)
+            _ => Vector2::new(0.0, 0.0),
         }
     }
 }
@@ -70,12 +84,11 @@ impl RayIntersect for Cube {
                 let mut t1 = (min_val - origin) * inv_d;
                 let mut t2 = (max_val - origin) * inv_d;
 
-                // In cube.rs, ray_intersect method:
                 let face = if t1 > t2 {
                     std::mem::swap(&mut t1, &mut t2);
-                    axis * 2 + 1 // FIX: Swapped = negative face
+                    axis * 2 + 1 // Negative face
                 } else {
-                    axis * 2 // Normal = positive face  
+                    axis * 2 // Positive face
                 };
 
                 if t1 > tmin {
@@ -102,7 +115,16 @@ impl RayIntersect for Cube {
 
         let point = *ray_origin + *ray_direction * tmin;
         let normal = Self::get_normal_for_face(hit_face);
+        let uv = self.calculate_uv(&point, hit_face); // NEW: Calculate UV
 
-        Intersect::new(self.materials[hit_face], true, tmin, point, normal)
+        Intersect::new(
+            self.materials[hit_face],
+            true,
+            tmin,
+            point,
+            normal,
+            uv, // NEW: Pass UV
+            hit_face,
+        )
     }
 }

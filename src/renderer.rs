@@ -5,9 +5,11 @@ use crate::intersection::Intersect;
 use crate::light::Light;
 use crate::objects::{Object, RayIntersect};
 use crate::skybox::Skybox;
+use crate::texture_pack::TextureManager;
 use rand::Rng;
 use raylib::prelude::*;
 use rayon::prelude::*; // NEW: For parallel iteration
+//
 
 use std::f32::consts::PI;
 use std::sync::Mutex; // NEW: For thread-safe framebuffer access
@@ -44,6 +46,7 @@ pub fn render(
     camera: &Camera,
     lights: &[Light],
     skybox: &Skybox,
+    texture_manager: &TextureManager,
 ) {
     // Pre-collect emissive objects into light sources
     let emissive_lights = collect_emissive_lights(bvh.objects()); // NEW: Get objects from BVH
@@ -88,6 +91,7 @@ pub fn render(
                 &emissive_lights,
                 skybox,
                 0,
+                texture_manager,
             );
 
             *pixel = pixel_color;
@@ -145,7 +149,6 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
     emissive_lights
 }
 
-// NEW: Extended cast_ray signature with ray weight for early termination
 pub fn cast_ray(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
@@ -154,6 +157,7 @@ pub fn cast_ray(
     emissive_lights: &[EmissiveLight],
     skybox: &Skybox,
     depth: u32,
+    texture_manager: &TextureManager, // NEW
 ) -> Color {
     cast_ray_weighted(
         ray_origin,
@@ -164,6 +168,7 @@ pub fn cast_ray(
         skybox,
         depth,
         1.0,
+        texture_manager, // NEW
     )
 }
 
@@ -176,9 +181,9 @@ fn cast_ray_weighted(
     emissive_lights: &[EmissiveLight],
     skybox: &Skybox,
     depth: u32,
-    weight: f32, // NEW: Track accumulated ray weight
+    weight: f32,
+    texture_manager: &TextureManager, // NEW: Pass texture manager
 ) -> Color {
-    // OPTIMIZED: Early termination based on ray contribution
     if depth >= MAX_RECURSION_DEPTH || weight < MIN_RAY_CONTRIBUTION {
         return skybox.sample(ray_direction);
     }
@@ -190,6 +195,25 @@ fn cast_ray_weighted(
     }
 
     let material = intersection.material();
+
+    // NEW: Handle alpha-based transparency modulation
+    let texture_alpha = if let Some(texture_id) = material.texture_id {
+        if let Some(pack) = texture_manager.active_pack() {
+            if let Some(texture) = pack.get_texture(texture_id) {
+                let sampled = texture.diffuse.sample(intersection.uv.x, intersection.uv.y);
+                sampled.a as f32 / 255.0
+            } else {
+                1.0
+            }
+        } else {
+            1.0
+        }
+    } else {
+        1.0
+    };
+
+    // Modulate material transparency with texture alpha
+    let effective_transparency = material.transparency * texture_alpha;
 
     let is_entering = intersection.normal.dot(*ray_direction) < 0.0;
 
@@ -209,15 +233,18 @@ fn cast_ray_weighted(
         emissive_lights,
         bvh,
         skybox,
+        texture_manager, // NEW: Pass texture manager
     );
 
+    // Rest of the function remains the same, but use effective_transparency
+    // instead of material.transparency everywhere
+
     // Handle non-transparent materials with reflection
-    if material.transparency < 0.01 {
+    if effective_transparency < 0.01 {
         if material.reflectivity > 0.0 {
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
 
-            // NEW: Pass weighted contribution for early termination
             let new_weight = weight * material.reflectivity;
             let reflection_color = cast_ray_weighted(
                 &reflect_origin,
@@ -227,7 +254,8 @@ fn cast_ray_weighted(
                 emissive_lights,
                 skybox,
                 depth + 1,
-                new_weight, // NEW: Track reflection weight
+                new_weight,
+                texture_manager,
             );
 
             let blended = color_blend(surface_color, reflection_color, material.reflectivity);
@@ -248,7 +276,7 @@ fn cast_ray_weighted(
         return surface_color;
     }
 
-    // Handle transparent materials
+    // Handle transparent materials (same as before but use effective_transparency)
     let (n1, n2) = if is_entering {
         (1.0, material.refractive_index)
     } else {
@@ -258,13 +286,11 @@ fn cast_ray_weighted(
     let kr = fresnel(&ray_direction, &outward_normal, n1, n2);
     let kt = 1.0 - kr;
 
-    let mut final_color = color_multiply(surface_color, 1.0 - material.transparency);
+    let mut final_color = color_multiply(surface_color, 1.0 - effective_transparency);
 
-    // OPTIMIZED: Only trace reflection if contribution is meaningful
-    if kr > 0.0 && material.transparency > 0.0 {
-        let reflection_weight = kr * material.transparency;
+    if kr > 0.0 && effective_transparency > 0.0 {
+        let reflection_weight = kr * effective_transparency;
 
-        // NEW: Skip reflection if contribution too small
         if weight * reflection_weight >= MIN_RAY_CONTRIBUTION {
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
@@ -277,7 +303,8 @@ fn cast_ray_weighted(
                 emissive_lights,
                 skybox,
                 depth + 1,
-                weight * reflection_weight, // NEW: Track weight
+                weight * reflection_weight,
+                texture_manager,
             );
 
             final_color = color_add(
@@ -287,11 +314,9 @@ fn cast_ray_weighted(
         }
     }
 
-    // OPTIMIZED: Only trace refraction if contribution is meaningful
-    if kt > 0.0 && material.transparency > 0.0 {
-        let refraction_weight = kt * material.transparency;
+    if kt > 0.0 && effective_transparency > 0.0 {
+        let refraction_weight = kt * effective_transparency;
 
-        // NEW: Skip refraction if contribution too small
         if weight * refraction_weight >= MIN_RAY_CONTRIBUTION {
             if let Some(refract_dir) = refract(&ray_direction, &outward_normal, n1, n2) {
                 let refract_origin = if is_entering {
@@ -308,7 +333,8 @@ fn cast_ray_weighted(
                     emissive_lights,
                     skybox,
                     depth + 1,
-                    weight * refraction_weight, // NEW: Track weight
+                    weight * refraction_weight,
+                    texture_manager,
                 );
 
                 final_color = color_add(
@@ -333,16 +359,69 @@ fn calculate_lighting(
     view_dir: &Vector3,
     lights: &[Light],
     emissive_lights: &[EmissiveLight],
-    bvh: &BVH, // NEW: Changed from objects slice to BVH
+    bvh: &BVH,
     skybox: &Skybox,
+    texture_manager: &TextureManager,
 ) -> Color {
     let material = intersection.material();
+
+    // Sample texture if material has one
+    let (diffuse_color, final_normal, final_specular) = if let Some(texture_id) =
+        material.texture_id
+    {
+        if let Some(pack) = texture_manager.active_pack() {
+            if let Some(texture) = pack.get_texture(texture_id) {
+                // 1. Sample diffuse texture
+                let sampled_color = texture.diffuse.sample(intersection.uv.x, intersection.uv.y);
+
+                // 2. Sample normal map if available
+                let final_normal = if let Some(ref normal_map) = texture.normal {
+                    let tangent_normal =
+                        normal_map.sample_normal(intersection.uv.x, intersection.uv.y);
+
+                    let (tangent, bitangent, _) =
+                        calculate_tangent_basis_for_cube(normal, intersection.face_index);
+
+                    tangent_to_world(&tangent_normal, &tangent, &bitangent, normal)
+                } else {
+                    *normal
+                };
+
+                // 3. NEW: Sample specular map if available
+                let final_specular = if let Some(ref specular_map) = texture.specular {
+                    // Sample specular map and get intensity
+                    let intensity =
+                        specular_map.sample_specular(intersection.uv.x, intersection.uv.y);
+                    // Apply exponential scaling for more dramatic variation
+                    material.specular * (intensity * intensity)
+                } else {
+                    // Fallback: derive from diffuse brightness
+                    let brightness =
+                        (sampled_color.r as f32 + sampled_color.g as f32 + sampled_color.b as f32)
+                            / (3.0 * 255.0);
+                    let smoothness = 1.0 - brightness; // Invert: bright = rough, dark = smooth
+                    material.specular * (smoothness * smoothness) // Exponential
+                };
+
+                (sampled_color, final_normal, final_specular)
+            } else {
+                (material.diffuse, *normal, material.specular)
+            }
+        } else {
+            (material.diffuse, *normal, material.specular)
+        }
+    } else {
+        (material.diffuse, *normal, material.specular)
+    };
+
+    // Use final_normal and final_specular for all lighting calculations below
+    let normal = &final_normal;
 
     // Skybox-driven ambient lighting
     let ambient_dir = *normal;
     let ambient_sample = skybox.sample(&ambient_dir);
     let ambient_intensity = 0.2;
-    let mut diffuse_color = color_multiply(ambient_sample, ambient_intensity * material.albedo[0]);
+    let mut lighting_color = color_multiply(ambient_sample, ambient_intensity * material.albedo[0]);
 
     let mut specular_color = Color::new(0, 0, 0, 255);
 
@@ -353,7 +432,7 @@ fn calculate_lighting(
                 &intersection.point,
                 normal,
                 light,
-                bvh, // NEW: Pass BVH
+                bvh,
                 intersection.distance(),
             )
         } else {
@@ -375,10 +454,11 @@ fn calculate_lighting(
             let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity * visibility;
             let diffuse_contribution =
                 color_multiply(light.color, diffuse_intensity * material.albedo[0]);
-            diffuse_color = color_add(diffuse_color, diffuse_contribution);
+            lighting_color = color_add(lighting_color, diffuse_contribution);
 
             let reflect_dir = reflect(&light_dir, normal);
-            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(material.specular)
+            // NEW: Use final_specular instead of material.specular
+            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(final_specular)
                 * light_intensity
                 * visibility;
             let specular_contribution =
@@ -387,7 +467,7 @@ fn calculate_lighting(
         }
     }
 
-    // FIXED: Process pre-collected emissive lights (no iteration through all objects)
+    // Process emissive lights
     for emissive_light in emissive_lights {
         let light_dir = (emissive_light.position - intersection.point).normalized();
         let light_distance = (emissive_light.position - intersection.point).length();
@@ -395,7 +475,6 @@ fn calculate_lighting(
 
         let is_shadowed = cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh);
 
-        // Cast shadow ray
         if !is_shadowed {
             let base_intensity = emissive_light.strength;
             let light_intensity =
@@ -404,11 +483,12 @@ fn calculate_lighting(
             let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
             let diffuse_contribution =
                 color_multiply(emissive_light.color, diffuse_intensity * material.albedo[0]);
-            diffuse_color = color_add(diffuse_color, diffuse_contribution);
+            lighting_color = color_add(lighting_color, diffuse_contribution);
 
             let reflect_dir = reflect(&light_dir, normal);
+            // NEW: Use final_specular instead of material.specular
             let specular_intensity =
-                view_dir.dot(reflect_dir).max(0.0).powf(material.specular) * light_intensity;
+                view_dir.dot(reflect_dir).max(0.0).powf(final_specular) * light_intensity;
             let specular_contribution = color_multiply(
                 emissive_light.color,
                 specular_intensity * material.albedo[1],
@@ -417,7 +497,11 @@ fn calculate_lighting(
         }
     }
 
-    color_add(diffuse_color, specular_color)
+    // Combine lighting with texture color
+    let lit_color = color_add(lighting_color, specular_color);
+    let final_color = color_modulate(diffuse_color, lit_color);
+
+    final_color
 }
 
 fn calculate_adaptive_visibility_with_distance(
@@ -738,4 +822,74 @@ pub fn get_grid_sample_on_sphere(index: usize, total_samples: usize, radius: f32
     };
 
     sample * radius
+}
+
+#[inline(always)]
+fn calculate_tangent_basis_for_cube(
+    normal: &Vector3,
+    face_index: usize,
+) -> (Vector3, Vector3, Vector3) {
+    // Tangent points in the direction of increasing U
+    // Bitangent points in the direction of increasing V
+    let (tangent, bitangent) = match face_index {
+        0 => (
+            // +X face (right)
+            Vector3::new(0.0, 0.0, -1.0), // U increases as Z decreases
+            Vector3::new(0.0, -1.0, 0.0), // V increases as Y decreases
+        ),
+        1 => (
+            // -X face (left)
+            Vector3::new(0.0, 0.0, 1.0),  // U increases as Z increases
+            Vector3::new(0.0, -1.0, 0.0), // V increases as Y decreases
+        ),
+        2 => (
+            // +Y face (top)
+            Vector3::new(1.0, 0.0, 0.0),  // U increases as X increases
+            Vector3::new(0.0, 0.0, -1.0), // V increases as Z decreases
+        ),
+        3 => (
+            // -Y face (bottom)
+            Vector3::new(1.0, 0.0, 0.0), // U increases as X increases
+            Vector3::new(0.0, 0.0, 1.0), // V increases as Z increases
+        ),
+        4 => (
+            // +Z face (front)
+            Vector3::new(1.0, 0.0, 0.0),  // U increases as X increases
+            Vector3::new(0.0, -1.0, 0.0), // V increases as Y decreases
+        ),
+        5 => (
+            // -Z face (back)
+            Vector3::new(-1.0, 0.0, 0.0), // U increases as X decreases
+            Vector3::new(0.0, -1.0, 0.0), // V increases as Y decreases
+        ),
+        _ => (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0)),
+    };
+
+    (tangent.normalized(), bitangent.normalized(), *normal)
+}
+// Add this helper function to calculate tangent space basis
+
+// Add this helper to transform normal from tangent space to world space
+#[inline(always)]
+fn tangent_to_world(
+    tangent_normal: &Vector3,
+    tangent: &Vector3,
+    bitangent: &Vector3,
+    normal: &Vector3,
+) -> Vector3 {
+    let x = tangent.scale_by(tangent_normal.x);
+    let y = bitangent.scale_by(tangent_normal.y);
+    let z = normal.scale_by(tangent_normal.z);
+
+    (x + y + z).normalized()
+}
+
+#[inline(always)]
+fn color_modulate(a: Color, b: Color) -> Color {
+    Color::new(
+        ((a.r as u16 * b.r as u16) / 255) as u8,
+        ((a.g as u16 * b.g as u16) / 255) as u8,
+        ((a.b as u16 * b.b as u16) / 255) as u8,
+        a.a,
+    )
 }

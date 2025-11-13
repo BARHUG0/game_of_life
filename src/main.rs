@@ -11,6 +11,14 @@ mod objects;
 mod renderer;
 mod skybox;
 
+mod texture;
+mod texture_pack;
+
+// Add this for the texture pack config
+mod texture_packs {
+    pub mod optimum_realism;
+}
+
 use bvh::BVH; // NEW: Import BVH
 use camera::Camera;
 use day_night_cycle::DayNightCycle;
@@ -21,6 +29,8 @@ use objects::{Cube, Object, Sphere};
 use raylib::prelude::*;
 use renderer::render;
 use skybox::{GradientSkybox, Skybox, SolidSkybox};
+use texture_pack::TextureManager;
+use texture_packs::optimum_realism::{load_default_pack, texture_ids};
 
 const WINDOW_WIDTH: i32 = 1900;
 const WINDOW_HEIGHT: i32 = 1000;
@@ -44,7 +54,7 @@ const LIGHT_0_POSITION: Vector3 = Vector3 {
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 0.0;
+const LIGHT_0_INTENSITY: f32 = 8.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,
@@ -125,47 +135,50 @@ fn game_loop() {
         stars_intensity,
     ));
 
-    // Create a colorful cube (non-reflective)
-    let cube = Cube::new_with_center(
-        Vector3::new(0.0, 0.0, 0.0),
-        2.0,
-        [
-            Material::simple(Color::RED),
-            Material::simple(Color::BLUE),
-            Material::simple(Color::GREEN),
-            Material::simple(Color::YELLOW),
-            Material::simple(Color::ORANGE),
-            Material::simple(Color::PURPLE),
-        ],
+    let mut texture_manager = TextureManager::new();
+
+    // Load default pack
+    let default_pack = load_default_pack();
+    texture_manager.add_pack(default_pack);
+
+    let cube_oak_log = Cube::new_with_center(
+        Vector3::new(-2.0, 3.0, 0.0),
+        1.5,
+        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+    );
+
+    let cube_diamond = Cube::new_with_center(
+        Vector3::new(3.0, 3.0, 0.0),
+        1.5,
+        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
     );
 
     // Create a metallic sphere to the left
-    let cube_metal = Cube::new_with_center(
+    let cube_gold = Cube::new_with_center(
         Vector3::new(-3.0, 0.0, 0.0),
-        1.0,
-        [Material::METAL(Color::new(180, 180, 200, 255)); 6],
+        1.5,
+        [Material::GOLD(Color::new(180, 180, 200, 255), Some(texture_ids::GOLD)); 6],
     );
 
-    // Create a mirror sphere to the right
-    let cube_mirror =
-        Cube::new_with_center(Vector3::new(3.0, 0.0, 0.0), 1.0, [Material::MIRROR(); 6]);
+    let cube_glass = Cube::new_with_center(
+        Vector3::new(0.0, 2.0, 2.0),
+        1.5,
+        [Material::GLASS(Some(texture_ids::GLASS)); 6],
+    );
 
-    // Create a small glass-like sphere in front
-    let cube_glass =
-        Cube::new_with_center(Vector3::new(0.0, 2.0, 2.0), 0.6, [Material::GLASS(); 6]);
-
-    let cube_emissive = Cube::new_with_center(
+    /*let cube_emissive = Cube::new_with_center(
         Vector3::new(-4.0, 0.5, 2.0),
         0.8,
-        [Material::EMISSIVE(Color::new(0, 255, 100, 255), 6.0); 6],
-    );
+        [Material::EMISSIVE(Color::new(0, 255, 100, 255), 100.0); 6],
+    );*/
 
     let objects = vec![
-        Object::Cube(cube),
-        Object::Cube(cube_metal),
-        Object::Cube(cube_mirror),
+        //Object::Cube(cube),
+        Object::Cube(cube_gold),
         Object::Cube(cube_glass),
-        Object::Cube(cube_emissive),
+        //        Object::Cube(cube_emissive),
+        Object::Cube(cube_oak_log),
+        Object::Cube(cube_diamond),
     ];
 
     // NEW: Build BVH from objects
@@ -312,8 +325,19 @@ fn game_loop() {
             lights[selected_light].position.y += light_move_speed;
         }
 
+        if handle.is_key_pressed(KeyboardKey::KEY_N) {
+            texture_manager.next_pack();
+        }
+
         // NEW: Pass BVH to render instead of objects
-        render(&mut framebuffer, &bvh, &camera, &lights, &skybox);
+        render(
+            &mut framebuffer,
+            &bvh,
+            &camera,
+            &lights,
+            &skybox,
+            &texture_manager,
+        );
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)

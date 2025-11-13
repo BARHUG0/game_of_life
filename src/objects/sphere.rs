@@ -59,6 +59,14 @@ impl RayIntersect for Sphere {
         let point = *ray_origin + *ray_direction * distance;
         let normal = (point - self.center).normalized();
 
-        Intersect::new(self.material, true, distance, point, normal)
+        Intersect::new(
+            self.material,
+            true,
+            distance,
+            point,
+            normal,
+            Vector2::zero(),
+            0,
+        )
     }
 }

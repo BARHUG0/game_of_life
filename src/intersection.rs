@@ -8,6 +8,8 @@ pub struct Intersect {
     pub distance: f32,
     pub point: Vector3,
     pub normal: Vector3,
+    pub uv: Vector2,       // NEW: UV coordinates for texture sampling
+    pub face_index: usize, // NEW: Track which face was hit (for cubes)
 }
 
 impl Intersect {
@@ -17,6 +19,8 @@ impl Intersect {
         distance: f32,
         point: Vector3,
         normal: Vector3,
+        uv: Vector2,       // NEW: Added UV parameter
+        face_index: usize, // NEW: Track which face was hit (for cubes)
     ) -> Self {
         Intersect {
             is_intersecting,
@@ -24,6 +28,8 @@ impl Intersect {
             distance,
             point,
             normal,
+            uv, // NEW
+            face_index,
         }
     }
 
@@ -34,6 +40,8 @@ impl Intersect {
             distance: 0.0,
             point: Vector3::zero(),
             normal: Vector3::zero(),
+            uv: Vector2::zero(), // NEW
+            face_index: 0,
         }
     }
 
