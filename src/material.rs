@@ -89,11 +89,11 @@ impl Material {
     pub fn GLASS(texture_id: Option<usize>) -> Self {
         Material {
             diffuse: Color::new(245, 250, 255, 255),
-            albedo: [0.0, 0.5, 0.1],
-            specular: 125.0,
-            reflectivity: 0.04, // ~4% Fresnel reflection at normal incidence
-            transparency: 0.95,
-            refractive_index: 1.5, // Typical glass
+            albedo: [0.15, 0.6, 0.1], // CHANGED: Increased diffuse, moderate specular
+            specular: 100.0,          // CHANGED: Reduced from 125.0
+            reflectivity: 0.08,       // CHANGED: Increased slightly from 0.04
+            transparency: 0.85,       // CHANGED: Reduced from 0.95 for visibility
+            refractive_index: 1.5,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
             texture_id,
@@ -101,17 +101,14 @@ impl Material {
     }
 
     /// Diamond material with scientifically accurate properties
-    /// Refractive index: 2.417 (measured value for natural diamond)
-    /// High reflectivity due to high RI, excellent light return
-    /// Source: Gemological Institute measurements
     pub fn DIAMOND(texture_id: Option<usize>) -> Self {
         Material {
             diffuse: Color::new(245, 250, 255, 255),
-            albedo: [0.0, 0.9, 0.05],
+            albedo: [0.2, 0.9, 0.05], // CHANGED: Increased diffuse component
             specular: 200.0,
-            reflectivity: 0.17, // ~17% surface reflection from high RI
-            transparency: 0.95,
-            refractive_index: 2.417, // Scientifically measured diamond RI
+            reflectivity: 0.17,
+            transparency: 0.00,
+            refractive_index: 2.417,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
             texture_id,
@@ -119,15 +116,12 @@ impl Material {
     }
 
     /// Gold material with scientifically accurate properties
-    /// Reflectivity: >97% in visible spectrum (yellow-red wavelengths >90%)
-    /// High specular reflection characteristic of polished metals
-    /// Source: Optical properties of metallic films
     pub fn GOLD(color: Color, texture_id: Option<usize>) -> Self {
         Material {
             diffuse: color,
-            albedo: [0.3, 0.9, 0.0], // High specular component
-            specular: 150.0,         // Sharp, mirror-like highlights
-            reflectivity: 0.85,      // Very high metallic reflection
+            albedo: [0.7, 0.5, 0.0], // CHANGED: Higher diffuse, lower specular
+            specular: 80.0,          // CHANGED: Reduced from 150.0
+            reflectivity: 0.4,       // CHANGED: Reduced from 0.85
             transparency: 0.0,
             refractive_index: 1.0,
             emission: Color::new(0, 0, 0, 0),

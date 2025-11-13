@@ -54,7 +54,7 @@ const LIGHT_0_POSITION: Vector3 = Vector3 {
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 8.0;
+const LIGHT_0_INTENSITY: f32 = 50.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,

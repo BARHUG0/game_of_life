@@ -258,7 +258,14 @@ fn cast_ray_weighted(
                 texture_manager,
             );
 
-            let blended = color_blend(surface_color, reflection_color, material.reflectivity);
+            // For highly reflective materials (gold), blend differently
+            let blended = if material.reflectivity > 0.5 {
+                // High reflectivity: reflection dominates
+                color_blend(surface_color, reflection_color, material.reflectivity)
+            } else {
+                // Low reflectivity: surface color dominates
+                color_blend(surface_color, reflection_color, material.reflectivity)
+            };
 
             if material.emission_strength > 0.0 {
                 let emission_color = color_multiply(material.emission, material.emission_strength);
@@ -366,41 +373,27 @@ fn calculate_lighting(
     let material = intersection.material();
 
     // Sample texture if material has one
-    let (diffuse_color, final_normal, final_specular) = if let Some(texture_id) =
-        material.texture_id
-    {
+    let (base_color, final_normal, final_specular) = if let Some(texture_id) = material.texture_id {
         if let Some(pack) = texture_manager.active_pack() {
             if let Some(texture) = pack.get_texture(texture_id) {
-                // 1. Sample diffuse texture
                 let sampled_color = texture.diffuse.sample(intersection.uv.x, intersection.uv.y);
 
-                // 2. Sample normal map if available
                 let final_normal = if let Some(ref normal_map) = texture.normal {
                     let tangent_normal =
                         normal_map.sample_normal(intersection.uv.x, intersection.uv.y);
-
                     let (tangent, bitangent, _) =
                         calculate_tangent_basis_for_cube(normal, intersection.face_index);
-
                     tangent_to_world(&tangent_normal, &tangent, &bitangent, normal)
                 } else {
                     *normal
                 };
 
-                // 3. NEW: Sample specular map if available
                 let final_specular = if let Some(ref specular_map) = texture.specular {
-                    // Sample specular map and get intensity
                     let intensity =
                         specular_map.sample_specular(intersection.uv.x, intersection.uv.y);
-                    // Apply exponential scaling for more dramatic variation
                     material.specular * (intensity * intensity)
                 } else {
-                    // Fallback: derive from diffuse brightness
-                    let brightness =
-                        (sampled_color.r as f32 + sampled_color.g as f32 + sampled_color.b as f32)
-                            / (3.0 * 255.0);
-                    let smoothness = 1.0 - brightness; // Invert: bright = rough, dark = smooth
-                    material.specular * (smoothness * smoothness) // Exponential
+                    material.specular
                 };
 
                 (sampled_color, final_normal, final_specular)
@@ -414,16 +407,29 @@ fn calculate_lighting(
         (material.diffuse, *normal, material.specular)
     };
 
-    // Use final_normal and final_specular for all lighting calculations below
     let normal = &final_normal;
 
-    // Skybox-driven ambient lighting
+    // Convert base_color to normalized RGB for calculations
+    let base_r = base_color.r as f32 / 255.0;
+    let base_g = base_color.g as f32 / 255.0;
+    let base_b = base_color.b as f32 / 255.0;
+
+    // Skybox ambient
     let ambient_dir = *normal;
     let ambient_sample = skybox.sample(&ambient_dir);
     let ambient_intensity = 0.2;
-    let mut lighting_color = color_multiply(ambient_sample, ambient_intensity * material.albedo[0]);
 
-    let mut specular_color = Color::new(0, 0, 0, 255);
+    // Apply ambient to base color
+    let mut final_r =
+        (ambient_sample.r as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_r;
+    let mut final_g =
+        (ambient_sample.g as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_g;
+    let mut final_b =
+        (ambient_sample.b as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_b;
+
+    let mut spec_r = 0.0;
+    let mut spec_g = 0.0;
+    let mut spec_b = 0.0;
 
     // Process regular lights
     for light in lights {
@@ -439,7 +445,6 @@ fn calculate_lighting(
             let light_dir = (light.position - intersection.point).normalized();
             let light_distance = (light.position - intersection.point).length();
             let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
-
             if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
                 1.0
             } else {
@@ -451,19 +456,27 @@ fn calculate_lighting(
             let light_dir = (light.position - intersection.point).normalized();
             let light_intensity = light.get_intensity_at(&intersection.point);
 
-            let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity * visibility;
-            let diffuse_contribution =
-                color_multiply(light.color, diffuse_intensity * material.albedo[0]);
-            lighting_color = color_add(lighting_color, diffuse_contribution);
+            // Diffuse
+            let diffuse_intensity =
+                normal.dot(light_dir).max(0.0) * light_intensity * visibility * material.albedo[0];
+            let light_r = light.color.r as f32 / 255.0;
+            let light_g = light.color.g as f32 / 255.0;
+            let light_b = light.color.b as f32 / 255.0;
 
+            final_r += diffuse_intensity * light_r * base_r;
+            final_g += diffuse_intensity * light_g * base_g;
+            final_b += diffuse_intensity * light_b * base_b;
+
+            // Specular
             let reflect_dir = reflect(&light_dir, normal);
-            // NEW: Use final_specular instead of material.specular
             let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(final_specular)
                 * light_intensity
-                * visibility;
-            let specular_contribution =
-                color_multiply(light.color, specular_intensity * material.albedo[1]);
-            specular_color = color_add(specular_color, specular_contribution);
+                * visibility
+                * material.albedo[1];
+
+            spec_r += specular_intensity * light_r;
+            spec_g += specular_intensity * light_g;
+            spec_b += specular_intensity * light_b;
         }
     }
 
@@ -473,35 +486,41 @@ fn calculate_lighting(
         let light_distance = (emissive_light.position - intersection.point).length();
         let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
 
-        let is_shadowed = cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh);
-
-        if !is_shadowed {
+        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
             let base_intensity = emissive_light.strength;
             let light_intensity =
                 base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
 
-            let diffuse_intensity = normal.dot(light_dir).max(0.0) * light_intensity;
-            let diffuse_contribution =
-                color_multiply(emissive_light.color, diffuse_intensity * material.albedo[0]);
-            lighting_color = color_add(lighting_color, diffuse_contribution);
+            // Diffuse
+            let diffuse_intensity =
+                normal.dot(light_dir).max(0.0) * light_intensity * material.albedo[0];
+            let light_r = emissive_light.color.r as f32 / 255.0;
+            let light_g = emissive_light.color.g as f32 / 255.0;
+            let light_b = emissive_light.color.b as f32 / 255.0;
 
+            final_r += diffuse_intensity * light_r * base_r;
+            final_g += diffuse_intensity * light_g * base_g;
+            final_b += diffuse_intensity * light_b * base_b;
+
+            // Specular
             let reflect_dir = reflect(&light_dir, normal);
-            // NEW: Use final_specular instead of material.specular
-            let specular_intensity =
-                view_dir.dot(reflect_dir).max(0.0).powf(final_specular) * light_intensity;
-            let specular_contribution = color_multiply(
-                emissive_light.color,
-                specular_intensity * material.albedo[1],
-            );
-            specular_color = color_add(specular_color, specular_contribution);
+            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(final_specular)
+                * light_intensity
+                * material.albedo[1];
+
+            spec_r += specular_intensity * light_r;
+            spec_g += specular_intensity * light_g;
+            spec_b += specular_intensity * light_b;
         }
     }
 
-    // Combine lighting with texture color
-    let lit_color = color_add(lighting_color, specular_color);
-    let final_color = color_modulate(diffuse_color, lit_color);
-
-    final_color
+    // Combine and clamp
+    Color::new(
+        ((final_r + spec_r) * 255.0).min(255.0).max(0.0) as u8,
+        ((final_g + spec_g) * 255.0).min(255.0).max(0.0) as u8,
+        ((final_b + spec_b) * 255.0).min(255.0).max(0.0) as u8,
+        255,
+    )
 }
 
 fn calculate_adaptive_visibility_with_distance(
@@ -882,14 +901,4 @@ fn tangent_to_world(
     let z = normal.scale_by(tangent_normal.z);
 
     (x + y + z).normalized()
-}
-
-#[inline(always)]
-fn color_modulate(a: Color, b: Color) -> Color {
-    Color::new(
-        ((a.r as u16 * b.r as u16) / 255) as u8,
-        ((a.g as u16 * b.g as u16) / 255) as u8,
-        ((a.b as u16 * b.b as u16) / 255) as u8,
-        a.a,
-    )
 }
