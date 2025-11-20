@@ -13,7 +13,7 @@ use rayon::prelude::*;
 use std::f32::consts::PI;
 use std::sync::Mutex;
 
-const MAX_SURFACE_EMISSION: f32 = 1.0;
+const MAX_SURFACE_EMISSION: f32 = 0.3;
 
 const MAX_RECURSION_DEPTH: u32 = 4;
 

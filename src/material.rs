@@ -198,7 +198,7 @@ impl Material {
             albedo: [0.9, 0.1, 0.0],
             specular: 12.0,
             reflectivity: 0.0,
-            transparency: 0.55,
+            transparency: 0.0,
             refractive_index: 1.52,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
@@ -215,7 +215,7 @@ impl Material {
             transparency: 0.0,
             refractive_index: 1.5,
             emission: Color::new(255, 220, 140, 255),
-            emission_strength: 25.0,
+            emission_strength: 15.0,
             texture_id,
         }
     }

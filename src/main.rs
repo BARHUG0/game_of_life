@@ -141,142 +141,31 @@ fn game_loop() {
     let default_pack = load_default_pack();
     texture_manager.add_pack(default_pack);
 
-    let cube_oak_log = Cube::new_with_center(
-        Vector3::new(-2.0, 3.0, 0.0),
-        CUBE_SIZE,
-        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
-    );
+    let objects = create_enchanted_garden();
 
-    let cube_diamond = Cube::new_with_center(
-        Vector3::new(3.0, 3.0, 0.0),
-        CUBE_SIZE,
-        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
-    );
-
-    // Create a metallic sphere to the left
-    let cube_gold = Cube::new_with_center(
-        Vector3::new(-3.0, 0.0, 0.0),
-        CUBE_SIZE,
-        [Material::GOLD(Color::new(180, 180, 200, 255), Some(texture_ids::GOLD)); 6],
-    );
-
-    let cube_glass = Cube::new_with_center(
-        Vector3::new(0.0, 2.0, 2.0),
-        CUBE_SIZE,
-        [Material::GLASS(Some(texture_ids::GLASS)); 6],
-    );
-
-    let cube_mirror = Cube::new_with_center(
-        Vector3::new(0.0, 4.0, -5.0),
-        CUBE_SIZE,
-        [Material::MIRROR(Some(texture_ids::GLASS)); 6],
-    );
-    let cube_glowstone = Cube::new_with_center(
-        Vector3::new(7.0, 3.0, 0.0),
-        CUBE_SIZE,
-        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
-    );
-
-    let cube_stone = Cube::new_with_center(
-        Vector3::new(0.0, 2.0, -7.0),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    );
-
-    let cube_grass = Cube::new_with_center(
-        Vector3::new(5.0, 5.0, 5.0),
-        CUBE_SIZE,
-        [
-            Material::DIRT(Some(texture_ids::DIRT)),
-            Material::DIRT(Some(texture_ids::DIRT)),
-            Material::DIRT(Some(texture_ids::DIRT)),
-            Material::DIRT(Some(texture_ids::GRASS_TOP)),
-            Material::DIRT(Some(texture_ids::DIRT)),
-            Material::DIRT(Some(texture_ids::DIRT)),
-        ],
-    );
-
-    let cube_oak_leaves = Cube::new_with_center(
-        Vector3::new(0.0, 2.0, -5.0),
-        CUBE_SIZE,
-        [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
-    );
-
-    let cube_emerald_ore = Cube::new_with_center(
-        Vector3::new(0.0, 5.0, -7.0),
-        CUBE_SIZE,
-        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
-    );
-
-    let cube_iron_ore = Cube::new_with_center(
-        Vector3::new(4.0, 2.0, -7.0),
-        CUBE_SIZE,
-        [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
-    );
-
-    let cube_honeycomb = Cube::new_with_center(
-        Vector3::new(2.0, 2.0, -7.0),
-        CUBE_SIZE,
-        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
-    );
-    let cube_ice = Cube::new_with_center(
-        Vector3::new(2.0, 5.0, -7.0),
-        CUBE_SIZE,
-        [Material::ICE(Some(texture_ids::ICE)); 6],
-    );
-
-    let cube_stripped_oak_log = Cube::new_with_center(
-        Vector3::new(-2.0, 5.0, -7.0),
-        CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    );
-
-    let cube_tnt = Cube::new_with_center(
-        Vector3::new(-2.0, -5.0, -7.0),
-        CUBE_SIZE,
-        [Material::TNT(Some(texture_ids::TNT)); 6],
-    );
-
-    /*let cube_emissive = Cube::new_with_center(
-        Vector3::new(-4.0, 0.5, 2.0),
-        0.8,
-        [Material::EMISSIVE(Color::new(0, 255, 100, 255), 100.0); 6],
-    );*/
-
-    let objects = vec![
-        //Object::Cube(cube),
-        Object::Cube(cube_gold),
-        Object::Cube(cube_glass),
-        //        Object::Cube(cube_emissive),
-        Object::Cube(cube_oak_log),
-        Object::Cube(cube_diamond),
-        Object::Cube(cube_grass),
-        Object::Cube(cube_glowstone),
-        Object::Cube(cube_stone),
-        Object::Cube(cube_oak_leaves),
-        Object::Cube(cube_emerald_ore),
-        Object::Cube(cube_iron_ore),
-        Object::Cube(cube_honeycomb),
-        Object::Cube(cube_ice),
-        Object::Cube(cube_stripped_oak_log),
-        Object::Cube(cube_tnt),
-        Object::Cube(cube_mirror),
-    ];
-
-    // NEW: Build BVH from objects
-    println!("Building BVH...");
     let bvh = BVH::build(objects);
-    println!("BVH built successfully!");
 
     let mut lights = vec![
-        Light::soft(LIGHT_0_POSITION, LIGHT_0_INTENSITY, LIGHT_0_COLOR, 0.8),
-        Light::soft(LIGHT_1_POSITION, LIGHT_1_INTENSITY, LIGHT_1_COLOR, 0.5),
-        Light::soft(LIGHT_2_POSITION, LIGHT_2_INTENSITY, LIGHT_2_COLOR, 0.6),
+        // Main sun/ambient light (higher and more centered)
+        Light::soft(
+            Vector3::new(0.0, 15.0, 5.0),
+            30.0,
+            Color::new(255, 245, 230, 255), // Warm daylight
+            1.2,
+        ),
+        // Ambient fill light (softer, from behind)
+        Light::soft(
+            Vector3::new(0.0, 8.0, -8.0),
+            8.0,
+            Color::new(200, 220, 255, 255), // Cool blue fill
+            0.7,
+        ),
     ];
 
+    // Update camera starting position for better view:
     let mut camera = Camera::new(
-        Vector3::new(0.0, 0.0, 10.0),
-        Vector3::new(0.0, 0.0, 0.0),
+        Vector3::new(-8.0, 6.0, -8.0), // Position camera at an angle
+        Vector3::new(0.0, 1.0, 0.0),   // Look at center of scene
         Vector3::new(0.0, 1.0, 0.0),
     );
 
@@ -430,4 +319,172 @@ fn game_loop() {
             draw_handle.draw_texture(&texture, 0, 0, Color::WHITE);
         }
     }
+}
+
+fn create_enchanted_garden() -> Vec<Object> {
+    let mut objects = Vec::new();
+
+    // === GROUND LAYER (Grass floor) ===
+    // 11x11 grass floor base
+    for x in -5..=5 {
+        for z in -5..=5 {
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new(x as f32 * CUBE_SIZE, -1.0, z as f32 * CUBE_SIZE),
+                CUBE_SIZE,
+                [
+                    Material::DIRT(Some(texture_ids::DIRT)),           // Bottom
+                    Material::GRASS_TOP(Some(texture_ids::GRASS_TOP)), // Top
+                    Material::DIRT(Some(texture_ids::DIRT)),           // Front
+                    Material::DIRT(Some(texture_ids::DIRT)),           // Back
+                    Material::DIRT(Some(texture_ids::DIRT)),           // Left
+                    Material::DIRT(Some(texture_ids::DIRT)),           // Right
+                ],
+            )));
+        }
+    }
+
+    // === CENTRAL TREE ===
+    // Tree trunk (oak log) - 4 blocks tall
+    for y in 0..4 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(0.0, y as f32, 0.0),
+            CUBE_SIZE,
+            [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+        )));
+    }
+
+    // Tree canopy (oak leaves) - 3x3x3 crown
+    for x in -1..=1 as i32 {
+        for y in 3..=5 as i32 {
+            for z in -1..=1 as i32 {
+                // Skip the center column at y=3 (trunk continues)
+                if y == 3 && x == 0 && z == 0 {
+                    continue;
+                }
+                // Create more organic shape - skip some corners
+                if y == 5 && (x.abs() + z.abs() > 1) {
+                    continue;
+                }
+                objects.push(Object::Cube(Cube::new_with_center(
+                    Vector3::new(x as f32, y as f32, z as f32),
+                    CUBE_SIZE,
+                    [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
+                )));
+            }
+        }
+    }
+
+    // === HONEYCOMB BEEHIVE (Left side) ===
+    // 2x2x2 beehive structure
+    for x in -4..=-3 {
+        for y in 0..2 {
+            for z in -1..=0 {
+                objects.push(Object::Cube(Cube::new_with_center(
+                    Vector3::new(x as f32, y as f32, z as f32),
+                    CUBE_SIZE,
+                    [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+                )));
+            }
+        }
+    }
+
+    // === ICE POND (Back-left area) ===
+    // 3x3 ice surface
+    for x in -4..=-2 {
+        for z in 2..=4 {
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new(x as f32, -1.0, z as f32),
+                CUBE_SIZE,
+                [Material::ICE(Some(texture_ids::ICE)); 6],
+            )));
+        }
+    }
+
+    // === GLOWSTONE LAMP POSTS (4 corners) ===
+    // Corner 1: Front-left
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-4.0, 0.0, -4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-4.0, 1.0, -4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-4.0, 2.0, -4.0),
+        CUBE_SIZE,
+        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+    )));
+
+    // Corner 2: Front-right
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 0.0, -4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 1.0, -4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 2.0, -4.0),
+        CUBE_SIZE,
+        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+    )));
+
+    // Corner 3: Back-right
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 0.0, 4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 1.0, 4.0),
+        CUBE_SIZE,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(4.0, 2.0, 4.0),
+        CUBE_SIZE,
+        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+    )));
+
+    // === DECORATIVE CRYSTAL FORMATIONS ===
+    // Diamond "crystal" cluster (right-front)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.5, 0.0, -3.5),
+        CUBE_SIZE,
+        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.5, 0.85, -3.5),
+        CUBE_SIZE * 0.7,
+        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
+    )));
+
+    // Gold blocks as decorative elements (left-front)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.5, 0.0, -3.0),
+        CUBE_SIZE,
+        [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
+    )));
+
+    // Iron ore near tree base
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(1.5, 0.0, 1.5),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+
+    // === HIDDEN TNT (Easter egg under tree) ===
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.0, 0.0, 1.0),
+        CUBE_SIZE,
+        [Material::TNT(Some(texture_ids::TNT)); 6],
+    )));
+
+    objects
 }
