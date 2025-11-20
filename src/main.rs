@@ -98,7 +98,7 @@ fn game_loop() {
     let default_pack = load_default_pack();
     texture_manager.add_pack(default_pack);
 
-    let (objects, mut lights) = create_treasure_vault();
+    let (objects, mut lights) = create_glowstone_shrine();
 
     let bvh = BVH::build(objects);
 
@@ -567,12 +567,16 @@ pub fn create_crystal_greenhouse() -> (Vec<Object>, Vec<Light>) {
 
     (objects, lights)
 }
+
+// Returns: (objects, lights)
 pub fn create_treasure_vault() -> (Vec<Object>, Vec<Light>) {
     let mut objects = Vec::new();
 
+    // Center offset for this diorama (position as needed)
     let offset_x = 0.0;
     let offset_z = 0.0;
 
+    // === FLOOR LAYER (5x5 stone floor with checkerboard pattern) ===
     for x in -2..=2 as i32 {
         for z in -2..=2 as i32 {
             // Create a checkerboard pattern in the center area
@@ -580,7 +584,7 @@ pub fn create_treasure_vault() -> (Vec<Object>, Vec<Light>) {
             let is_dark = (x + z) % 2 == 0;
 
             let top_material = if is_center && is_dark {
-                Material::DIRT(Some(texture_ids::DIRT)) // Dark squares
+                Material::GRASS_TOP(Some(texture_ids::GRASS_TOP)) // Dark squares
             } else {
                 Material::STONE(Some(texture_ids::STONE)) // Light squares
             };
@@ -600,164 +604,166 @@ pub fn create_treasure_vault() -> (Vec<Object>, Vec<Light>) {
         }
     }
 
-    // === CENTRAL TREASURE PODIUM ===
-    // Stone base pedestal
+    // === TREASURES ON FLOOR (2x2 center, visible at y=0) ===
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-0.5 + offset_x, 0.0, -0.5 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.5 + offset_x, 0.0, -0.5 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-0.5 + offset_x, 0.0, 0.5 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.5 + offset_x, 0.0, 0.5 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-
-    // Diamond blocks on top (2x2 - the stars!)
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-0.5 + offset_x, 1.0, -0.5 + offset_z),
-        CUBE_SIZE,
-        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.5 + offset_x, 1.0, -0.5 + offset_z),
+        Vector3::new(0.0 + offset_x, 2.0, 2.0 + offset_z),
         CUBE_SIZE,
         [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
     )));
 
-    // Gold blocks flanking diamonds
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-0.5 + offset_x, 1.0, 0.5 + offset_z),
+        Vector3::new(1.0 + offset_x, 0.0, -1.0 + offset_z),
         CUBE_SIZE,
         [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.5 + offset_x, 1.0, 0.5 + offset_z),
+        Vector3::new(-1.0 + offset_x, 0.0, -1.0 + offset_z),
+        CUBE_SIZE,
+        [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.0 + offset_x, 0.0, -1.0 + offset_z),
         CUBE_SIZE,
         [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
     )));
 
-    // === BACK WALL (stone frame with embedded treasures) ===
-    // Left wall column (3 blocks tall)
+    // === CAVE ENTRANCE STRUCTURE (symmetric arc from back) ===
+
+    // Ground level (y=0) - Full back wall
+    for x in -2..=2 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 0.0, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Left side pillar (y=0-4, x=-2)
+    for y in 1..=3 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(-2.0 + offset_x, y as f32, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Right side pillar (y=0-4, x=2)
+    for y in 1..=3 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(2.0 + offset_x, y as f32, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Second layer inward (y=1-4, x=±1)
+    for y in 1..=2 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(-1.0 + offset_x, y as f32, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(1.0 + offset_x, y as f32, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Center column (y=1-3, x=0) - shorter to create arch opening
+    for y in 1..=1 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(0.0 + offset_x, y as f32, 2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Top of arch (y=4) - spans across creating the arch top
+
+    // Ceiling extending forward (creating cave depth)
+    // Layer at z=1 (y=3-4): Wider ceiling
+    for x in -2..=2 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 4.0, 1.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+    for x in -1..=1 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 3.0, 1.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Layer at z=0 (y=4): Middle ceiling
+    for x in -1..=1 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 4.0, 0.0 + offset_z),
+            CUBE_SIZE,
+            [Material::STONE(Some(texture_ids::STONE)); 6],
+        )));
+    }
+
+    // Layer at z=-1 (y=4): Front edge of cave ceiling
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 0.0, 2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 1.0, 2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 2.0, 2.0 + offset_z),
+        Vector3::new(0.0 + offset_x, 4.0, -1.0 + offset_z),
         CUBE_SIZE,
         [Material::STONE(Some(texture_ids::STONE)); 6],
     )));
 
-    // Right wall column (3 blocks tall)
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 0.0, 2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 1.0, 2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 2.0, 2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::STONE(Some(texture_ids::STONE)); 6],
-    )));
+    // === MINERAL VEINS (medium density, mixed through cave structure) ===
 
-    // Center wall with embedded emerald ore
+    // Emerald ore veins
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.0 + offset_x, 1.0, 2.0 + offset_z),
+        Vector3::new(-1.0 + offset_x, 2.0, 1.9 + offset_z),
         CUBE_SIZE,
         [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-1.0 + offset_x, 1.0, 2.0 + offset_z),
+        Vector3::new(2.0 + offset_x, 0.0, 1.9 + offset_z),
         CUBE_SIZE,
         [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(1.0 + offset_x, 1.0, 2.0 + offset_z),
+        Vector3::new(-2.0 + offset_x, 3.0, 1.9 + offset_z),
         CUBE_SIZE,
         [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
     )));
 
-    // === ICE ACCENT BLOCKS (for reflection chains) ===
-    // Strategic ice placement for interesting reflections
+    // Iron ore veins
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 0.0, -1.0 + offset_z),
+        Vector3::new(2.0 + offset_x, 2.0, 1.90 + offset_z),
         CUBE_SIZE,
-        [Material::ICE(Some(texture_ids::ICE)); 6],
+        [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 0.0, -1.0 + offset_z),
+        Vector3::new(-2.0 + offset_x, 0.0, 1.90 + offset_z),
         CUBE_SIZE,
-        [Material::ICE(Some(texture_ids::ICE)); 6],
-    )));
-
-    // === DECORATIVE ELEMENTS ===
-    // Honeycomb blocks (warm accents)
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 0.0, 0.0 + offset_z),
-        CUBE_SIZE,
-        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+        [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 0.0, 0.0 + offset_z),
+        Vector3::new(0.0 + offset_x, 1.0, 1.90 + offset_z),
         CUBE_SIZE,
-        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+        [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
     )));
 
-    // Oak log corner posts (front corners)
+    // === TNT ON TOP OF CAVE ARC ===
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.0 + offset_x, 0.0, -2.0 + offset_z),
+        Vector3::new(0.0 + offset_x, 3.0, -0.0 + offset_z),
         CUBE_SIZE,
-        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.0 + offset_x, 0.0, -2.0 + offset_z),
-        CUBE_SIZE,
-        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+        [Material::TNT(Some(texture_ids::TNT)); 6],
     )));
 
     // === LIGHTS ===
     let lights = vec![
-        // Main dramatic overhead light (spotlight effect)
+        // Low fill light (simulating reflected light from treasures)
         Light::soft(
-            Vector3::new(0.0 + offset_x, 6.0, -1.0 + offset_z),
-            20.0,
-            Color::new(255, 245, 230, 255), // Warm spotlight on treasures
-            0.8,
-        ),
-        // Secondary fill light from back-left (to illuminate reflections)
-        Light::soft(
-            Vector3::new(-2.0 + offset_x, 4.0, 3.0 + offset_z),
-            10.0,
-            Color::new(200, 220, 255, 255), // Cool fill
-            0.4,
-        ),
-        // Accent light from right (creates sparkle on gold/diamond)
-        Light::soft(
-            Vector3::new(3.0 + offset_x, 3.0, 0.0 + offset_z),
-            8.0,
-            Color::new(255, 240, 220, 255), // Warm accent
+            Vector3::new(0.0 + offset_x, 3.0, -5.0 + offset_z),
+            5.0,
+            Color::new(255, 235, 200, 255), // Warm golden bounce
             0.35,
         ),
         // Subtle side rim lights for depth (four cardinal directions)
@@ -778,12 +784,6 @@ pub fn create_treasure_vault() -> (Vec<Object>, Vec<Light>) {
             4.0,
             Color::new(255, 220, 240, 255), // Soft pink from front
             0.27,
-        ),
-        Light::soft(
-            Vector3::new(0.0 + offset_x, 2.5, 4.5 + offset_z),
-            4.0,
-            Color::new(200, 255, 230, 255), // Soft green from back
-            0.25,
         ),
     ];
 

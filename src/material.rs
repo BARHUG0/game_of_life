@@ -230,7 +230,7 @@ impl Material {
             transparency: 0.0,
             refractive_index: 1.5,
             emission: Color::new(255, 220, 140, 255),
-            emission_strength: 2.0,
+            emission_strength: 4.0,
             texture_id,
         }
     }
@@ -252,8 +252,8 @@ impl Material {
     pub fn IRON_ORE(texture_id: Option<usize>) -> Self {
         Material {
             diffuse: Color::new(135, 130, 126, 255),
-            albedo: [0.95, 0.05, 0.0],
-            specular: 20.0,
+            albedo: [0.95, 0.05, 1.0],
+            specular: 190.0,
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.545,
