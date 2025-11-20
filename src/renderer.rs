@@ -8,11 +8,12 @@ use crate::skybox::Skybox;
 use crate::texture_pack::TextureManager;
 use rand::Rng;
 use raylib::prelude::*;
-use rayon::prelude::*; // NEW: For parallel iteration
-//
+use rayon::prelude::*;
 
 use std::f32::consts::PI;
-use std::sync::Mutex; // NEW: For thread-safe framebuffer access
+use std::sync::Mutex;
+
+const MAX_SURFACE_EMISSION: f32 = 1.0;
 
 const MAX_RECURSION_DEPTH: u32 = 4;
 
@@ -20,19 +21,15 @@ const LIGHT_ATTENUTATION: f32 = 0.7;
 
 const SHADOW_BIAS: f32 = 0.001;
 
-// OPTIMIZED: Reduced shadow samples for better performance
-const SHADOW_SAMPLES_MIN: usize = 1; // Changed from 1
-const SHADOW_SAMPLES_MAX: usize = 4; // Changed from 8
-
+const SHADOW_SAMPLES_MIN: usize = 1;
+const SHADOW_SAMPLES_MAX: usize = 4;
 const DISTANCE_NEAR: f32 = 5.0;
 const DISTANCE_FAR: f32 = 20.0;
-const SAMPLES_NEAR: usize = 4; // Changed from 8
-const SAMPLES_FAR: usize = 1; // Changed from 2
+const SAMPLES_NEAR: usize = 4;
+const SAMPLES_FAR: usize = 1;
 
-// NEW: Early termination threshold for recursion
-const MIN_RAY_CONTRIBUTION: f32 = 0.01; // Stop if ray contributes less than 1% to final color
+const MIN_RAY_CONTRIBUTION: f32 = 0.01;
 
-// NEW: Pre-collected emissive light source
 #[derive(Clone, Copy)]
 struct EmissiveLight {
     position: Vector3,
@@ -42,13 +39,12 @@ struct EmissiveLight {
 
 pub fn render(
     framebuffer: &mut Framebuffer,
-    bvh: &BVH, // NEW: Changed from objects slice to BVH
+    bvh: &BVH,
     camera: &Camera,
     lights: &[Light],
     skybox: &Skybox,
     texture_manager: &TextureManager,
 ) {
-    // Pre-collect emissive objects into light sources
     let emissive_lights = collect_emissive_lights(bvh.objects()); // NEW: Get objects from BVH
 
     let width = framebuffer.width() as f32;
@@ -58,15 +54,12 @@ pub fn render(
     let fov = PI / 3.0;
     let perspective_scale = (fov * 0.5).tan() as f32;
 
-    // Create a thread-safe wrapper for framebuffer access
     let fb_width = framebuffer.width();
     let fb_height = framebuffer.height();
 
-    // Pre-allocate pixel buffer for parallel writes
     let pixel_count = (fb_width * fb_height) as usize;
     let mut pixels: Vec<Color> = vec![Color::new(0, 0, 0, 255); pixel_count];
 
-    // Parallel iteration over all pixels
     pixels
         .par_iter_mut()
         .enumerate()
@@ -86,7 +79,7 @@ pub fn render(
             let pixel_color = cast_ray(
                 &camera.eye,
                 &rotated_direction,
-                bvh, // NEW: Pass BVH instead of objects
+                bvh,
                 lights,
                 &emissive_lights,
                 skybox,
@@ -97,7 +90,6 @@ pub fn render(
             *pixel = pixel_color;
         });
 
-    // Write all pixels to framebuffer at once (single-threaded, but fast)
     for (index, pixel) in pixels.iter().enumerate() {
         let x = (index as i32) % fb_width;
         let y = (index as i32) / fb_width;
@@ -113,8 +105,6 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
         let (material, position) = match object {
             Object::Sphere(sphere) => (sphere.material(), sphere.center()),
             Object::Cube(cube) => {
-                // For cubes, we need to check if ANY face is emissive
-                // Use the first face's material and the cube's center
                 let materials = cube.materials;
                 let has_emission = materials.iter().any(|m| m.emission_strength > 0.5);
 
@@ -122,7 +112,6 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
                     continue;
                 }
 
-                // Use the material with strongest emission
                 let best_material = materials
                     .iter()
                     .max_by(|a, b| {
@@ -136,7 +125,6 @@ fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
             }
         };
 
-        // Only collect objects with meaningful emission
         if material.emission_strength > 0.5 {
             emissive_lights.push(EmissiveLight {
                 position,
@@ -168,7 +156,7 @@ pub fn cast_ray(
         skybox,
         depth,
         1.0,
-        0, // Start with transparency_depth = 0
+        1.0,
         texture_manager,
     )
 }
@@ -182,26 +170,21 @@ fn cast_ray_weighted(
     skybox: &Skybox,
     depth: u32,
     weight: f32,
-    transparency_depth: u32, // NEW: Track transparent layers instead of budget
+    current_ior: f32,
     texture_manager: &TextureManager,
 ) -> Color {
-    // Stop if we've exceeded depth or weight is too low
     if depth >= MAX_RECURSION_DEPTH || weight < MIN_RAY_CONTRIBUTION {
         return skybox.sample(ray_direction);
     }
 
-    // Check for intersection FIRST, before any early returns
     let intersection = bvh.intersect(ray_origin, ray_direction);
 
-    // If no intersection, return skybox
     if !intersection.is_intersecting {
         return skybox.sample(ray_direction);
     }
 
-    // We hit something! Now process it
     let material = intersection.material();
 
-    // Sample texture alpha if available
     let texture_alpha = if let Some(texture_id) = material.texture_id {
         if let Some(pack) = texture_manager.active_pack() {
             if let Some(texture) = pack.get_texture(texture_id) {
@@ -217,12 +200,11 @@ fn cast_ray_weighted(
         1.0
     };
 
-    // Modulate material transparency with texture alpha
     let effective_transparency = material.transparency * texture_alpha;
 
     let is_entering = intersection.normal.dot(*ray_direction) < 0.0;
 
-    let outward_normal = if is_entering {
+    let geometric_normal = if is_entering {
         intersection.normal
     } else {
         -intersection.normal
@@ -230,10 +212,9 @@ fn cast_ray_weighted(
 
     let view_dir = ray_direction.scale_by(-1.0);
 
-    // Calculate surface lighting
     let surface_color = calculate_lighting(
         &intersection,
-        &outward_normal,
+        &geometric_normal,
         &view_dir,
         lights,
         emissive_lights,
@@ -242,12 +223,10 @@ fn cast_ray_weighted(
         texture_manager,
     );
 
-    // === OPAQUE MATERIALS (No transparency) ===
     if effective_transparency < 0.01 {
-        // Handle reflection for reflective materials
         if material.reflectivity > 0.0 {
-            let reflect_dir = reflect(&ray_direction, &outward_normal);
-            let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
+            let reflect_dir = reflect(&ray_direction, &geometric_normal);
+            let reflect_origin = intersection.point + geometric_normal * SHADOW_BIAS;
 
             let new_weight = weight * material.reflectivity;
             let reflection_color = cast_ray_weighted(
@@ -259,64 +238,49 @@ fn cast_ray_weighted(
                 skybox,
                 depth + 1,
                 new_weight,
-                transparency_depth,
+                current_ior,
                 texture_manager,
             );
 
             let blended = color_blend(surface_color, reflection_color, material.reflectivity);
 
-            // Add emission if present
             if material.emission_strength > 0.0 {
-                let emission_color = color_multiply(material.emission, material.emission_strength);
+                let surface_emission_strength =
+                    material.emission_strength.min(MAX_SURFACE_EMISSION);
+                let emission_color = color_multiply(material.emission, surface_emission_strength);
                 return color_add(blended, emission_color);
             }
 
             return blended;
         }
 
-        // Add emission for emissive materials
         if material.emission_strength > 0.0 {
-            let emission_color = color_multiply(material.emission, material.emission_strength);
+            let surface_emission_strength = material.emission_strength.min(MAX_SURFACE_EMISSION);
+            let emission_color = color_multiply(material.emission, surface_emission_strength);
             return color_add(surface_color, emission_color);
         }
 
-        return surface_color;
-    }
-
-    // === TRANSPARENT MATERIALS ===
-
-    // Check if we've passed through too many transparent layers
-    const MAX_TRANSPARENCY_DEPTH: u32 = 8;
-    if transparency_depth >= MAX_TRANSPARENCY_DEPTH {
-        // Hit the limit, treat as opaque
-        if material.emission_strength > 0.0 {
-            let emission_color = color_multiply(material.emission, material.emission_strength);
-            return color_add(surface_color, emission_color);
-        }
         return surface_color;
     }
 
     let (n1, n2) = if is_entering {
-        (1.0, material.refractive_index)
+        (current_ior, material.refractive_index)
     } else {
         (material.refractive_index, 1.0)
     };
 
-    let kr = fresnel(&ray_direction, &outward_normal, n1, n2);
+    let kr = fresnel(&ray_direction, &geometric_normal, n1, n2);
     let kt = 1.0 - kr;
 
-    // Start with surface contribution (for semi-transparent materials)
     let mut final_color = color_multiply(surface_color, 1.0 - effective_transparency);
 
-    // === REFLECTION COMPONENT ===
     if kr > 0.0 && effective_transparency > 0.0 {
         let reflection_weight = kr * effective_transparency;
 
         if weight * reflection_weight >= MIN_RAY_CONTRIBUTION {
-            let reflect_dir = reflect(&ray_direction, &outward_normal);
-            let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
+            let reflect_dir = reflect(&ray_direction, &geometric_normal);
+            let reflect_origin = intersection.point + geometric_normal * SHADOW_BIAS;
 
-            // Reflections don't increase transparency depth
             let reflection_color = cast_ray_weighted(
                 &reflect_origin,
                 &reflect_dir,
@@ -326,7 +290,7 @@ fn cast_ray_weighted(
                 skybox,
                 depth + 1,
                 weight * reflection_weight,
-                transparency_depth,
+                current_ior, // Reflection stays in current medium
                 texture_manager,
             );
 
@@ -342,19 +306,14 @@ fn cast_ray_weighted(
         let refraction_weight = kt * effective_transparency;
 
         if weight * refraction_weight >= MIN_RAY_CONTRIBUTION {
-            if let Some(refract_dir) = refract(&ray_direction, &outward_normal, n1, n2) {
-                let refract_origin = if is_entering {
-                    intersection.point - outward_normal * SHADOW_BIAS
-                } else {
-                    intersection.point + outward_normal * SHADOW_BIAS
-                };
+            if let Some(refract_dir) = refract(&ray_direction, &geometric_normal, n1, n2) {
+                // Normal refraction
+                let refract_origin = intersection.point + refract_dir.normalized() * SHADOW_BIAS;
 
-                // Increment transparency depth only when passing through transparent surface
-                let new_transparency_depth = if is_entering {
-                    transparency_depth + 1
+                let new_ior = if is_entering {
+                    material.refractive_index
                 } else {
-                    // Exiting doesn't count as going deeper
-                    transparency_depth
+                    1.0
                 };
 
                 let refraction_color = cast_ray_weighted(
@@ -366,7 +325,7 @@ fn cast_ray_weighted(
                     skybox,
                     depth + 1,
                     weight * refraction_weight,
-                    new_transparency_depth,
+                    new_ior,
                     texture_manager,
                 );
 
@@ -374,13 +333,36 @@ fn cast_ray_weighted(
                     final_color,
                     color_multiply(refraction_color, refraction_weight),
                 );
+            } else {
+                // Total Internal Reflection occurred
+                // Continue the ray straight through (approximation for highly transparent materials)
+                let continue_origin =
+                    intersection.point + ray_direction.normalized() * (SHADOW_BIAS * 2.0);
+
+                let continuation_color = cast_ray_weighted(
+                    &continue_origin,
+                    &ray_direction, // Keep same direction
+                    bvh,
+                    lights,
+                    emissive_lights,
+                    skybox,
+                    depth + 1,
+                    weight * refraction_weight * 0.5, // Reduce contribution
+                    current_ior,                      // Stay in same medium
+                    texture_manager,
+                );
+
+                final_color = color_add(
+                    final_color,
+                    color_multiply(continuation_color, refraction_weight * 0.5),
+                );
             }
         }
     }
 
-    // Add emission if present
     if material.emission_strength > 0.0 {
-        let emission_color = color_multiply(material.emission, material.emission_strength);
+        let surface_emission_strength = material.emission_strength.min(MAX_SURFACE_EMISSION);
+        let emission_color = color_multiply(material.emission, surface_emission_strength);
         final_color = color_add(final_color, emission_color);
     }
 

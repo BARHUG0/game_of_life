@@ -45,16 +45,16 @@ const BLOOM_THRESHOLD: f32 = 0.5;
 const BLOOM_RADIUS: i32 = 2;
 const BLOOM_INTENSITY: f32 = 0.8;
 
-// LIGHT CONFIGURATION
+const CUBE_SIZE: f32 = 1.0;
+
 const NUM_LIGHTS: usize = 3;
 
-// Light 0 - White key light
 const LIGHT_0_POSITION: Vector3 = Vector3 {
     x: 3.0,
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 15.0;
+const LIGHT_0_INTENSITY: f32 = 10.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,
@@ -143,43 +143,49 @@ fn game_loop() {
 
     let cube_oak_log = Cube::new_with_center(
         Vector3::new(-2.0, 3.0, 0.0),
-        1.5,
+        CUBE_SIZE,
         [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
     );
 
     let cube_diamond = Cube::new_with_center(
         Vector3::new(3.0, 3.0, 0.0),
-        1.5,
+        CUBE_SIZE,
         [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
     );
 
     // Create a metallic sphere to the left
     let cube_gold = Cube::new_with_center(
         Vector3::new(-3.0, 0.0, 0.0),
-        1.5,
+        CUBE_SIZE,
         [Material::GOLD(Color::new(180, 180, 200, 255), Some(texture_ids::GOLD)); 6],
     );
 
     let cube_glass = Cube::new_with_center(
         Vector3::new(0.0, 2.0, 2.0),
-        1.5,
+        CUBE_SIZE,
         [Material::GLASS(Some(texture_ids::GLASS)); 6],
+    );
+
+    let cube_mirror = Cube::new_with_center(
+        Vector3::new(0.0, 4.0, -5.0),
+        CUBE_SIZE,
+        [Material::MIRROR(Some(texture_ids::GLASS)); 6],
     );
     let cube_glowstone = Cube::new_with_center(
         Vector3::new(7.0, 3.0, 0.0),
-        1.5,
+        CUBE_SIZE,
         [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
     );
 
     let cube_stone = Cube::new_with_center(
         Vector3::new(0.0, 2.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::STONE(Some(texture_ids::STONE)); 6],
     );
 
     let cube_grass = Cube::new_with_center(
         Vector3::new(5.0, 5.0, 5.0),
-        1.5,
+        CUBE_SIZE,
         [
             Material::DIRT(Some(texture_ids::DIRT)),
             Material::DIRT(Some(texture_ids::DIRT)),
@@ -192,42 +198,42 @@ fn game_loop() {
 
     let cube_oak_leaves = Cube::new_with_center(
         Vector3::new(0.0, 2.0, -5.0),
-        1.5,
+        CUBE_SIZE,
         [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
     );
 
     let cube_emerald_ore = Cube::new_with_center(
         Vector3::new(0.0, 5.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
     );
 
     let cube_iron_ore = Cube::new_with_center(
         Vector3::new(4.0, 2.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
     );
 
     let cube_honeycomb = Cube::new_with_center(
         Vector3::new(2.0, 2.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
     );
     let cube_ice = Cube::new_with_center(
         Vector3::new(2.0, 5.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::ICE(Some(texture_ids::ICE)); 6],
     );
 
     let cube_stripped_oak_log = Cube::new_with_center(
         Vector3::new(-2.0, 5.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
     );
 
     let cube_tnt = Cube::new_with_center(
         Vector3::new(-2.0, -5.0, -7.0),
-        1.5,
+        CUBE_SIZE,
         [Material::TNT(Some(texture_ids::TNT)); 6],
     );
 
@@ -254,6 +260,7 @@ fn game_loop() {
         Object::Cube(cube_ice),
         Object::Cube(cube_stripped_oak_log),
         Object::Cube(cube_tnt),
+        Object::Cube(cube_mirror),
     ];
 
     // NEW: Build BVH from objects

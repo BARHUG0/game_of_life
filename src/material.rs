@@ -215,7 +215,7 @@ impl Material {
             transparency: 0.0,
             refractive_index: 1.5,
             emission: Color::new(255, 220, 140, 255),
-            emission_strength: 0.0,
+            emission_strength: 25.0,
             texture_id,
         }
     }
@@ -298,6 +298,20 @@ impl Material {
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.55,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
+            texture_id,
+        }
+    }
+
+    pub fn MIRROR(texture_id: Option<usize>) -> Self {
+        Material {
+            diffuse: Color::new(240, 240, 245, 255),
+            albedo: [0.05, 0.95, 0.0],
+            specular: 500.0,
+            reflectivity: 0.95,
+            transparency: 0.0,
+            refractive_index: 1.0,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
             texture_id,
