@@ -157,7 +157,7 @@ pub fn cast_ray(
     emissive_lights: &[EmissiveLight],
     skybox: &Skybox,
     depth: u32,
-    texture_manager: &TextureManager, // NEW
+    texture_manager: &TextureManager,
 ) -> Color {
     cast_ray_weighted(
         ray_origin,
@@ -168,11 +168,11 @@ pub fn cast_ray(
         skybox,
         depth,
         1.0,
-        texture_manager, // NEW
+        0, // Start with transparency_depth = 0
+        texture_manager,
     )
 }
 
-// NEW: Internal function with weight tracking for early termination
 fn cast_ray_weighted(
     ray_origin: &Vector3,
     ray_direction: &Vector3,
@@ -182,21 +182,26 @@ fn cast_ray_weighted(
     skybox: &Skybox,
     depth: u32,
     weight: f32,
-    texture_manager: &TextureManager, // NEW: Pass texture manager
+    transparency_depth: u32, // NEW: Track transparent layers instead of budget
+    texture_manager: &TextureManager,
 ) -> Color {
+    // Stop if we've exceeded depth or weight is too low
     if depth >= MAX_RECURSION_DEPTH || weight < MIN_RAY_CONTRIBUTION {
         return skybox.sample(ray_direction);
     }
 
+    // Check for intersection FIRST, before any early returns
     let intersection = bvh.intersect(ray_origin, ray_direction);
 
+    // If no intersection, return skybox
     if !intersection.is_intersecting {
         return skybox.sample(ray_direction);
     }
 
+    // We hit something! Now process it
     let material = intersection.material();
 
-    // NEW: Handle alpha-based transparency modulation
+    // Sample texture alpha if available
     let texture_alpha = if let Some(texture_id) = material.texture_id {
         if let Some(pack) = texture_manager.active_pack() {
             if let Some(texture) = pack.get_texture(texture_id) {
@@ -225,6 +230,7 @@ fn cast_ray_weighted(
 
     let view_dir = ray_direction.scale_by(-1.0);
 
+    // Calculate surface lighting
     let surface_color = calculate_lighting(
         &intersection,
         &outward_normal,
@@ -233,14 +239,12 @@ fn cast_ray_weighted(
         emissive_lights,
         bvh,
         skybox,
-        texture_manager, // NEW: Pass texture manager
+        texture_manager,
     );
 
-    // Rest of the function remains the same, but use effective_transparency
-    // instead of material.transparency everywhere
-
-    // Handle non-transparent materials with reflection
+    // === OPAQUE MATERIALS (No transparency) ===
     if effective_transparency < 0.01 {
+        // Handle reflection for reflective materials
         if material.reflectivity > 0.0 {
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
@@ -255,18 +259,13 @@ fn cast_ray_weighted(
                 skybox,
                 depth + 1,
                 new_weight,
+                transparency_depth,
                 texture_manager,
             );
 
-            // For highly reflective materials (gold), blend differently
-            let blended = if material.reflectivity > 0.5 {
-                // High reflectivity: reflection dominates
-                color_blend(surface_color, reflection_color, material.reflectivity)
-            } else {
-                // Low reflectivity: surface color dominates
-                color_blend(surface_color, reflection_color, material.reflectivity)
-            };
+            let blended = color_blend(surface_color, reflection_color, material.reflectivity);
 
+            // Add emission if present
             if material.emission_strength > 0.0 {
                 let emission_color = color_multiply(material.emission, material.emission_strength);
                 return color_add(blended, emission_color);
@@ -275,6 +274,7 @@ fn cast_ray_weighted(
             return blended;
         }
 
+        // Add emission for emissive materials
         if material.emission_strength > 0.0 {
             let emission_color = color_multiply(material.emission, material.emission_strength);
             return color_add(surface_color, emission_color);
@@ -283,7 +283,19 @@ fn cast_ray_weighted(
         return surface_color;
     }
 
-    // Handle transparent materials (same as before but use effective_transparency)
+    // === TRANSPARENT MATERIALS ===
+
+    // Check if we've passed through too many transparent layers
+    const MAX_TRANSPARENCY_DEPTH: u32 = 8;
+    if transparency_depth >= MAX_TRANSPARENCY_DEPTH {
+        // Hit the limit, treat as opaque
+        if material.emission_strength > 0.0 {
+            let emission_color = color_multiply(material.emission, material.emission_strength);
+            return color_add(surface_color, emission_color);
+        }
+        return surface_color;
+    }
+
     let (n1, n2) = if is_entering {
         (1.0, material.refractive_index)
     } else {
@@ -293,8 +305,10 @@ fn cast_ray_weighted(
     let kr = fresnel(&ray_direction, &outward_normal, n1, n2);
     let kt = 1.0 - kr;
 
+    // Start with surface contribution (for semi-transparent materials)
     let mut final_color = color_multiply(surface_color, 1.0 - effective_transparency);
 
+    // === REFLECTION COMPONENT ===
     if kr > 0.0 && effective_transparency > 0.0 {
         let reflection_weight = kr * effective_transparency;
 
@@ -302,6 +316,7 @@ fn cast_ray_weighted(
             let reflect_dir = reflect(&ray_direction, &outward_normal);
             let reflect_origin = intersection.point + outward_normal * SHADOW_BIAS;
 
+            // Reflections don't increase transparency depth
             let reflection_color = cast_ray_weighted(
                 &reflect_origin,
                 &reflect_dir,
@@ -311,6 +326,7 @@ fn cast_ray_weighted(
                 skybox,
                 depth + 1,
                 weight * reflection_weight,
+                transparency_depth,
                 texture_manager,
             );
 
@@ -321,6 +337,7 @@ fn cast_ray_weighted(
         }
     }
 
+    // === REFRACTION COMPONENT ===
     if kt > 0.0 && effective_transparency > 0.0 {
         let refraction_weight = kt * effective_transparency;
 
@@ -332,6 +349,14 @@ fn cast_ray_weighted(
                     intersection.point + outward_normal * SHADOW_BIAS
                 };
 
+                // Increment transparency depth only when passing through transparent surface
+                let new_transparency_depth = if is_entering {
+                    transparency_depth + 1
+                } else {
+                    // Exiting doesn't count as going deeper
+                    transparency_depth
+                };
+
                 let refraction_color = cast_ray_weighted(
                     &refract_origin,
                     &refract_dir,
@@ -341,6 +366,7 @@ fn cast_ray_weighted(
                     skybox,
                     depth + 1,
                     weight * refraction_weight,
+                    new_transparency_depth,
                     texture_manager,
                 );
 
@@ -352,6 +378,7 @@ fn cast_ray_weighted(
         }
     }
 
+    // Add emission if present
     if material.emission_strength > 0.0 {
         let emission_color = color_multiply(material.emission, material.emission_strength);
         final_color = color_add(final_color, emission_color);
@@ -607,8 +634,18 @@ fn cast_shadow_ray(
             return false; // Hit a light source
         }
 
+        // NEW: For transparent objects, continue the shadow ray through them
+        if material.transparency > 0.5 && distance < light_distance {
+            // Continue shadow ray from other side of transparent object
+            let new_origin = intersection.point + *ray_direction * (SHADOW_BIAS * 2.0);
+            let remaining_distance = light_distance - distance;
+
+            // Recursively check if something blocks light beyond the transparent object
+            return cast_shadow_ray(&new_origin, ray_direction, remaining_distance, bvh);
+        }
+
         // If we hit an opaque object before reaching the light, it's blocked
-        if distance < light_distance && material.transparency < 0.5 {
+        if distance < light_distance {
             return true; // Shadowed by opaque object
         }
     }

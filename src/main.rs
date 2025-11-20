@@ -54,7 +54,7 @@ const LIGHT_0_POSITION: Vector3 = Vector3 {
     y: 5.0,
     z: 5.0,
 };
-const LIGHT_0_INTENSITY: f32 = 50.0;
+const LIGHT_0_INTENSITY: f32 = 15.0;
 const LIGHT_0_COLOR: Color = Color {
     r: 255,
     g: 255,
@@ -165,6 +165,71 @@ fn game_loop() {
         1.5,
         [Material::GLASS(Some(texture_ids::GLASS)); 6],
     );
+    let cube_glowstone = Cube::new_with_center(
+        Vector3::new(7.0, 3.0, 0.0),
+        1.5,
+        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+    );
+
+    let cube_stone = Cube::new_with_center(
+        Vector3::new(0.0, 2.0, -7.0),
+        1.5,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    );
+
+    let cube_grass = Cube::new_with_center(
+        Vector3::new(5.0, 5.0, 5.0),
+        1.5,
+        [
+            Material::DIRT(Some(texture_ids::DIRT)),
+            Material::DIRT(Some(texture_ids::DIRT)),
+            Material::DIRT(Some(texture_ids::DIRT)),
+            Material::DIRT(Some(texture_ids::GRASS_TOP)),
+            Material::DIRT(Some(texture_ids::DIRT)),
+            Material::DIRT(Some(texture_ids::DIRT)),
+        ],
+    );
+
+    let cube_oak_leaves = Cube::new_with_center(
+        Vector3::new(0.0, 2.0, -5.0),
+        1.5,
+        [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
+    );
+
+    let cube_emerald_ore = Cube::new_with_center(
+        Vector3::new(0.0, 5.0, -7.0),
+        1.5,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    );
+
+    let cube_iron_ore = Cube::new_with_center(
+        Vector3::new(4.0, 2.0, -7.0),
+        1.5,
+        [Material::IRON_ORE(Some(texture_ids::IRON_ORE)); 6],
+    );
+
+    let cube_honeycomb = Cube::new_with_center(
+        Vector3::new(2.0, 2.0, -7.0),
+        1.5,
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+    );
+    let cube_ice = Cube::new_with_center(
+        Vector3::new(2.0, 5.0, -7.0),
+        1.5,
+        [Material::ICE(Some(texture_ids::ICE)); 6],
+    );
+
+    let cube_stripped_oak_log = Cube::new_with_center(
+        Vector3::new(-2.0, 5.0, -7.0),
+        1.5,
+        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+    );
+
+    let cube_tnt = Cube::new_with_center(
+        Vector3::new(-2.0, -5.0, -7.0),
+        1.5,
+        [Material::TNT(Some(texture_ids::TNT)); 6],
+    );
 
     /*let cube_emissive = Cube::new_with_center(
         Vector3::new(-4.0, 0.5, 2.0),
@@ -179,6 +244,16 @@ fn game_loop() {
         //        Object::Cube(cube_emissive),
         Object::Cube(cube_oak_log),
         Object::Cube(cube_diamond),
+        Object::Cube(cube_grass),
+        Object::Cube(cube_glowstone),
+        Object::Cube(cube_stone),
+        Object::Cube(cube_oak_leaves),
+        Object::Cube(cube_emerald_ore),
+        Object::Cube(cube_iron_ore),
+        Object::Cube(cube_honeycomb),
+        Object::Cube(cube_ice),
+        Object::Cube(cube_stripped_oak_log),
+        Object::Cube(cube_tnt),
     ];
 
     // NEW: Build BVH from objects
