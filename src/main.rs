@@ -8,6 +8,7 @@ mod matrix;
 mod obj;
 mod render;
 mod shader;
+mod texture_manager;
 mod triangle;
 mod uniforms;
 mod vertex;
