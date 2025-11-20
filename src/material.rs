@@ -108,14 +108,29 @@ impl Material {
         }
     }
 
+    pub fn ICE(texture_id: Option<usize>) -> Self {
+        Material {
+            diffuse: Color::new(145, 180, 240, 255),
+            albedo: [0.25, 0.75, 0.0],
+            specular: 90.0,
+            reflectivity: 0.15,
+            transparency: 0.0,
+            refractive_index: 1.31,
+            emission: Color::new(0, 0, 0, 0),
+            emission_strength: 0.0,
+            texture_id,
+        }
+    }
+
     pub fn GOLD(color: Color, texture_id: Option<usize>) -> Self {
         Material {
             diffuse: color,
-            albedo: [0.7, 0.5, 0.0],
+
+            albedo: [0.30, 0.5, 0.0],
             specular: 80.0,
-            reflectivity: 0.4,
+            reflectivity: 0.2,
             transparency: 0.0,
-            refractive_index: 1.0,
+            refractive_index: 1.3,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
             texture_id,
@@ -215,7 +230,7 @@ impl Material {
             transparency: 0.0,
             refractive_index: 1.5,
             emission: Color::new(255, 220, 140, 255),
-            emission_strength: 15.0,
+            emission_strength: 2.0,
             texture_id,
         }
     }
@@ -256,20 +271,6 @@ impl Material {
             reflectivity: 0.0,
             transparency: 0.0,
             refractive_index: 1.47,
-            emission: Color::new(0, 0, 0, 0),
-            emission_strength: 0.0,
-            texture_id,
-        }
-    }
-
-    pub fn ICE(texture_id: Option<usize>) -> Self {
-        Material {
-            diffuse: Color::new(145, 180, 240, 255),
-            albedo: [0.25, 0.75, 0.0],
-            specular: 90.0,
-            reflectivity: 0.15,
-            transparency: 0.0,
-            refractive_index: 1.31,
             emission: Color::new(0, 0, 0, 0),
             emission_strength: 0.0,
             texture_id,

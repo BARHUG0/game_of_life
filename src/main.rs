@@ -47,49 +47,6 @@ const BLOOM_INTENSITY: f32 = 0.8;
 
 const CUBE_SIZE: f32 = 1.0;
 
-const NUM_LIGHTS: usize = 3;
-
-const LIGHT_0_POSITION: Vector3 = Vector3 {
-    x: 3.0,
-    y: 5.0,
-    z: 5.0,
-};
-const LIGHT_0_INTENSITY: f32 = 10.0;
-const LIGHT_0_COLOR: Color = Color {
-    r: 255,
-    g: 255,
-    b: 255,
-    a: 255,
-};
-
-// Light 1 - Red fill light
-const LIGHT_1_POSITION: Vector3 = Vector3 {
-    x: -4.0,
-    y: 2.0,
-    z: 3.0,
-};
-const LIGHT_1_INTENSITY: f32 = 0.0;
-const LIGHT_1_COLOR: Color = Color {
-    r: 255,
-    g: 100,
-    b: 100,
-    a: 255,
-};
-
-// Light 2 - Blue rim light
-const LIGHT_2_POSITION: Vector3 = Vector3 {
-    x: 0.0,
-    y: -3.0,
-    z: 6.0,
-};
-const LIGHT_2_INTENSITY: f32 = 0.0;
-const LIGHT_2_COLOR: Color = Color {
-    r: 100,
-    g: 150,
-    b: 255,
-    a: 255,
-};
-
 fn main() {
     game_loop();
 }
@@ -141,26 +98,9 @@ fn game_loop() {
     let default_pack = load_default_pack();
     texture_manager.add_pack(default_pack);
 
-    let objects = create_enchanted_garden();
+    let (objects, mut lights) = create_treasure_vault();
 
     let bvh = BVH::build(objects);
-
-    let mut lights = vec![
-        // Main sun/ambient light (higher and more centered)
-        Light::soft(
-            Vector3::new(0.0, 15.0, 5.0),
-            30.0,
-            Color::new(255, 245, 230, 255), // Warm daylight
-            1.2,
-        ),
-        // Ambient fill light (softer, from behind)
-        Light::soft(
-            Vector3::new(0.0, 8.0, -8.0),
-            8.0,
-            Color::new(200, 220, 255, 255), // Cool blue fill
-            0.7,
-        ),
-    ];
 
     // Update camera starting position for better view:
     let mut camera = Camera::new(
@@ -170,13 +110,12 @@ fn game_loop() {
     );
 
     let rotation_speed = PI as f32 / 100.0;
-    let light_move_speed = 0.5;
-    let mut selected_light: usize = 0;
+    let camera_move_speed = 0.1; // Adjust for desired movement speed
 
     println!("=== Controls ===");
-    println!("Arrow Keys: Rotate camera");
-    println!("1/2/3: Select light source");
-    println!("WASD + Q/E: Move selected light");
+    println!("Arrow Keys: Rotate camera around center");
+    println!("WASD: Move camera (W=forward, S=back, A=left, D=right)");
+    println!("Q/E: Move camera (Q=down, E=up)");
     println!("P: Pause/Resume time");
     println!("T/G: Speed up/slow down time");
     println!("R: Reverse time");
@@ -184,23 +123,6 @@ fn game_loop() {
 
     while !&handle.window_should_close() {
         framebuffer.clear();
-
-        // Light selection (1, 2, 3 keys)
-        if handle.is_key_pressed(KeyboardKey::KEY_ONE) {
-            selected_light = 0;
-            println!(
-                "Selected Light 0 (White) - Intensity: {}",
-                LIGHT_0_INTENSITY
-            );
-        }
-        if handle.is_key_pressed(KeyboardKey::KEY_TWO) {
-            selected_light = 1;
-            println!("Selected Light 1 (Red) - Intensity: {}", LIGHT_1_INTENSITY);
-        }
-        if handle.is_key_pressed(KeyboardKey::KEY_THREE) {
-            selected_light = 2;
-            println!("Selected Light 2 (Blue) - Intensity: {}", LIGHT_2_INTENSITY);
-        }
 
         // Get delta time for smooth animation
         let delta_time = handle.get_frame_time();
@@ -262,7 +184,7 @@ fn game_loop() {
             stars_intensity,
         ));
 
-        // Camera controls
+        // Camera rotation controls (Arrow keys)
         if handle.is_key_down(KeyboardKey::KEY_LEFT) {
             camera.orbit(rotation_speed, 0.0);
         }
@@ -276,31 +198,40 @@ fn game_loop() {
             camera.orbit(0.0, rotation_speed);
         }
 
-        // Light controls (WASD + Q/E)
+        // Camera translation controls (WASD + Q/E)
+        let mut forward = 0.0;
+        let mut right = 0.0;
+        let mut up = 0.0;
+
         if handle.is_key_down(KeyboardKey::KEY_W) {
-            lights[selected_light].position.z -= light_move_speed;
+            forward += camera_move_speed;
         }
         if handle.is_key_down(KeyboardKey::KEY_S) {
-            lights[selected_light].position.z += light_move_speed;
-        }
-        if handle.is_key_down(KeyboardKey::KEY_A) {
-            lights[selected_light].position.x -= light_move_speed;
+            forward -= camera_move_speed;
         }
         if handle.is_key_down(KeyboardKey::KEY_D) {
-            lights[selected_light].position.x += light_move_speed;
+            right += camera_move_speed;
         }
-        if handle.is_key_down(KeyboardKey::KEY_Q) {
-            lights[selected_light].position.y -= light_move_speed;
+        if handle.is_key_down(KeyboardKey::KEY_A) {
+            right -= camera_move_speed;
         }
         if handle.is_key_down(KeyboardKey::KEY_E) {
-            lights[selected_light].position.y += light_move_speed;
+            up += camera_move_speed;
+        }
+        if handle.is_key_down(KeyboardKey::KEY_Q) {
+            up -= camera_move_speed;
+        }
+
+        // Apply camera movement
+        if forward != 0.0 || right != 0.0 || up != 0.0 {
+            camera.translate(forward, right, up);
         }
 
         if handle.is_key_pressed(KeyboardKey::KEY_N) {
             texture_manager.next_pack();
         }
 
-        // NEW: Pass BVH to render instead of objects
+        // Render with BVH
         render(
             &mut framebuffer,
             &bvh,
@@ -321,52 +252,245 @@ fn game_loop() {
     }
 }
 
-fn create_enchanted_garden() -> Vec<Object> {
+pub fn create_glowstone_shrine() -> (Vec<Object>, Vec<Light>) {
     let mut objects = Vec::new();
 
-    // === GROUND LAYER (Grass floor) ===
-    // 11x11 grass floor base
-    for x in -5..=5 {
-        for z in -5..=5 {
+    // Center offset for this diorama (positioned at origin)
+    let offset_x = 0.0;
+    let offset_z = 0.0;
+
+    // === FLOOR LAYER (5x5 grass/dirt base) ===
+    for x in -2..=2 {
+        for z in -2..=2 {
+            // Create a stone path cross pattern leading to center
+            let is_path = (x == 0 || z == 0) && !(x == 0 && z == 0);
+
+            let top_material = if is_path {
+                Material::STONE(Some(texture_ids::STONE))
+            } else {
+                Material::GRASS_TOP(Some(texture_ids::GRASS_TOP))
+            };
+
             objects.push(Object::Cube(Cube::new_with_center(
-                Vector3::new(x as f32 * CUBE_SIZE, -1.0, z as f32 * CUBE_SIZE),
+                Vector3::new((x as f32) + offset_x, -1.0, (z as f32) + offset_z),
                 CUBE_SIZE,
                 [
-                    Material::DIRT(Some(texture_ids::DIRT)),           // Bottom
-                    Material::GRASS_TOP(Some(texture_ids::GRASS_TOP)), // Top
-                    Material::DIRT(Some(texture_ids::DIRT)),           // Front
-                    Material::DIRT(Some(texture_ids::DIRT)),           // Back
-                    Material::DIRT(Some(texture_ids::DIRT)),           // Left
-                    Material::DIRT(Some(texture_ids::DIRT)),           // Right
+                    Material::DIRT(Some(texture_ids::DIRT)), // Bottom
+                    Material::DIRT(Some(texture_ids::DIRT)), // Front
+                    Material::DIRT(Some(texture_ids::DIRT)), // Back
+                    top_material,                            // Top
+                    Material::DIRT(Some(texture_ids::DIRT)), // Left
+                    Material::DIRT(Some(texture_ids::DIRT)), // Right
                 ],
             )));
         }
     }
 
-    // === CENTRAL TREE ===
-    // Tree trunk (oak log) - 4 blocks tall
-    for y in 0..4 {
+    // === CENTRAL GLOWSTONE SHRINE (2x2 elevated platform) ===
+    // Base layer of the shrine (stone pedestal)
+    for x in -1..=0 {
+        for z in -1..=0 {
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new(
+                    (x as f32) + 0.5 + offset_x,
+                    0.0,
+                    (z as f32) + 0.5 + offset_z,
+                ),
+                CUBE_SIZE,
+                [Material::STONE(Some(texture_ids::STONE)); 6],
+            )));
+        }
+    }
+
+    // Glowstone top (2x2, the star of the show!)
+    for x in -1..=0 {
+        for z in -1..=0 {
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new(
+                    (x as f32) + 0.5 + offset_x,
+                    1.0,
+                    (z as f32) + 0.5 + offset_z,
+                ),
+                CUBE_SIZE,
+                [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+            )));
+        }
+    }
+
+    // === CORNER PILLARS (oak log with leaves caps) ===
+    let pillar_positions = [
+        (-2.0, -2.0), // Front-left
+        (2.0, -2.0),  // Front-right
+        (-2.0, 2.0),  // Back-left
+        (2.0, 2.0),   // Back-right
+    ];
+
+    for (px, pz) in pillar_positions.iter() {
+        // Oak log pillar (2 blocks tall)
         objects.push(Object::Cube(Cube::new_with_center(
-            Vector3::new(0.0, y as f32, 0.0),
+            Vector3::new(px + offset_x, 0.0, pz + offset_z),
+            CUBE_SIZE,
+            [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+        )));
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(px + offset_x, 1.0, pz + offset_z),
+            CUBE_SIZE,
+            [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+        )));
+
+        // Leaves cap on top
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(px + offset_x, 2.0, pz + offset_z),
+            CUBE_SIZE,
+            [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
+        )));
+    }
+
+    // === DECORATIVE ACCENTS ===
+    // Honeycomb blocks flanking the shrine (left and right)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 0.0, 0.0 + offset_z),
+        CUBE_SIZE,
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 0.0, 0.0 + offset_z),
+        CUBE_SIZE,
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+    )));
+
+    // Emerald ore accent blocks (front corners of path)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-1.0 + offset_x, 0.0, -2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(1.0 + offset_x, 0.0, -2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+
+    // Single ice block to catch the warm glow (back of shrine)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.0 + offset_x, 0.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::ICE(Some(texture_ids::ICE)); 6],
+    )));
+    let lights = vec![
+        // Soft ambient light from above
+        /*
+                Light::soft(
+                    Vector3::new(0.0 + offset_x, 8.0, 0.0 + offset_z),
+                    15.0,
+                    Color::new(200, 220, 255, 255), // Cool ambient
+                    0.6,
+                ),
+        */
+        // Subtle side rim lights for depth (four cardinal directions)
+        Light::soft(
+            Vector3::new(-6.0 + offset_x, 3.0, 0.0 + offset_z),
+            4.0,
+            Color::new(180, 200, 255, 255), // Cool blue rim from left
+            0.3,
+        ),
+        Light::soft(
+            Vector3::new(6.0 + offset_x, 3.0, 0.0 + offset_z),
+            4.0,
+            Color::new(255, 230, 200, 255), // Warm orange rim from right
+            0.25,
+        ),
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 3.0, -6.0 + offset_z),
+            4.0,
+            Color::new(255, 200, 220, 255), // Soft pink rim from front
+            0.28,
+        ),
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 3.0, 6.0 + offset_z),
+            4.0,
+            Color::new(200, 255, 220, 255), // Soft green rim from back
+            0.26,
+        ),
+    ];
+
+    (objects, lights)
+}
+
+pub fn create_crystal_greenhouse() -> (Vec<Object>, Vec<Light>) {
+    let mut objects = Vec::new();
+
+    // Center offset for this diorama (position as needed)
+    let offset_x = 0.0;
+    let offset_z = 0.0;
+
+    // === FLOOR LAYER (5x5 mixed surface) ===
+    for x in -2..=2 as i32 {
+        for z in -2..=2 as i32 {
+            // Interior has grass/dirt, exterior has stone border
+            let is_border = x.abs() == 2 || z.abs() == 2;
+
+            let top_material = if is_border {
+                Material::STONE(Some(texture_ids::STONE))
+            } else {
+                Material::GRASS_TOP(Some(texture_ids::GRASS_TOP))
+            };
+
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new((x as f32) + offset_x, -1.0, (z as f32) + offset_z),
+                CUBE_SIZE,
+                [
+                    Material::DIRT(Some(texture_ids::DIRT)), // Bottom
+                    Material::DIRT(Some(texture_ids::DIRT)), // Front
+                    Material::DIRT(Some(texture_ids::DIRT)), // Back
+                    top_material,                            // Top
+                    Material::DIRT(Some(texture_ids::DIRT)), // Left
+                    Material::DIRT(Some(texture_ids::DIRT)), // Right
+                ],
+            )));
+        }
+    }
+
+    // === FRONT GLASS WALL (complete 5-wide wall) ===
+    for x in -1..=1 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 2.0, -2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::GLASS(Some(texture_ids::GLASS)); 6],
+        )));
+    }
+
+    // Add a second layer for extra glass effect
+    for x in -1..=1 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new((x as f32) + offset_x, 1.0, -2.0 + offset_z),
+            CUBE_SIZE,
+            [Material::GLASS(Some(texture_ids::GLASS)); 6],
+        )));
+    }
+
+    // === INTERIOR TREE (oak log trunk with extending leaves) ===
+    // Tree trunk (4 blocks tall, centered in back area)
+    for y in 0..2 {
+        objects.push(Object::Cube(Cube::new_with_center(
+            Vector3::new(0.0 + offset_x, y as f32, 1.0 + offset_z),
             CUBE_SIZE,
             [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
         )));
     }
 
-    // Tree canopy (oak leaves) - 3x3x3 crown
-    for x in -1..=1 as i32 {
-        for y in 3..=5 as i32 {
-            for z in -1..=1 as i32 {
-                // Skip the center column at y=3 (trunk continues)
-                if y == 3 && x == 0 && z == 0 {
-                    continue;
-                }
-                // Create more organic shape - skip some corners
-                if y == 5 && (x.abs() + z.abs() > 1) {
-                    continue;
-                }
+    // Tree canopy - larger crown that extends beyond 5x5 boundaries
+    // Layer 1 (y=3): Wide base layer
+    for x in -2..=2 as i32 {
+        for z in -1..=3 as i32 {
+            // Skip the trunk center
+            if x == 0 && z == 1 {
+                continue;
+            }
+            // Create rounded shape
+            if x.abs() + (z - 1).abs() <= 2 {
                 objects.push(Object::Cube(Cube::new_with_center(
-                    Vector3::new(x as f32, y as f32, z as f32),
+                    Vector3::new(x as f32 + offset_x, 2.0, z as f32 + offset_z),
                     CUBE_SIZE,
                     [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
                 )));
@@ -374,117 +498,294 @@ fn create_enchanted_garden() -> Vec<Object> {
         }
     }
 
-    // === HONEYCOMB BEEHIVE (Left side) ===
-    // 2x2x2 beehive structure
-    for x in -4..=-3 {
-        for y in 0..2 {
-            for z in -1..=0 {
+    // Layer 2 (y=4): Middle layer
+    for x in -1..=1 as i32 {
+        for z in 0..=2 as i32 {
+            if x.abs() + (z - 1).abs() <= 1 {
                 objects.push(Object::Cube(Cube::new_with_center(
-                    Vector3::new(x as f32, y as f32, z as f32),
+                    Vector3::new(x as f32 + offset_x, 3.0, z as f32 + offset_z),
                     CUBE_SIZE,
-                    [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+                    [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
                 )));
             }
         }
     }
 
-    // === ICE POND (Back-left area) ===
-    // 3x3 ice surface
-    for x in -4..=-2 {
-        for z in 2..=4 {
-            objects.push(Object::Cube(Cube::new_with_center(
-                Vector3::new(x as f32, -1.0, z as f32),
-                CUBE_SIZE,
-                [Material::ICE(Some(texture_ids::ICE)); 6],
-            )));
-        }
-    }
-
-    // === GLOWSTONE LAMP POSTS (4 corners) ===
-    // Corner 1: Front-left
+    // Layer 3 (y=5): Top cap
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-4.0, 0.0, -4.0),
+        Vector3::new(0.0 + offset_x, 4.0, 1.0 + offset_z),
         CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-4.0, 1.0, -4.0),
-        CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-4.0, 2.0, -4.0),
-        CUBE_SIZE,
-        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+        [Material::LEAVES(Some(texture_ids::OAK_LEAVES)); 6],
     )));
 
-    // Corner 2: Front-right
+    // Honeycomb decorative blocks (sides near tree)
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 0.0, -4.0),
+        Vector3::new(-1.0 + offset_x, 0.0, 1.0 + offset_z),
         CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
     )));
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 1.0, -4.0),
+        Vector3::new(1.0 + offset_x, 0.0, 1.0 + offset_z),
         CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 2.0, -4.0),
-        CUBE_SIZE,
-        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
     )));
 
-    // Corner 3: Back-right
+    // TNT decorative crate (side)
     objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 0.0, 4.0),
-        CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 1.0, 4.0),
-        CUBE_SIZE,
-        [Material::STRIPPED_OAK_LOG(Some(texture_ids::STRIPPED_OAK_LOG)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(4.0, 2.0, 4.0),
-        CUBE_SIZE,
-        [Material::GLOWSTONE(Some(texture_ids::GLOWSTONE)); 6],
-    )));
-
-    // === DECORATIVE CRYSTAL FORMATIONS ===
-    // Diamond "crystal" cluster (right-front)
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.5, 0.0, -3.5),
-        CUBE_SIZE,
-        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
-    )));
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(2.5, 0.85, -3.5),
-        CUBE_SIZE * 0.7,
-        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
-    )));
-
-    // Gold blocks as decorative elements (left-front)
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(-2.5, 0.0, -3.0),
-        CUBE_SIZE,
-        [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
-    )));
-
-    // Iron ore near tree base
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(1.5, 0.0, 1.5),
-        CUBE_SIZE,
-        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
-    )));
-
-    // === HIDDEN TNT (Easter egg under tree) ===
-    objects.push(Object::Cube(Cube::new_with_center(
-        Vector3::new(0.0, 0.0, 1.0),
+        Vector3::new(-2.0 + offset_x, 0.0, 0.0 + offset_z),
         CUBE_SIZE,
         [Material::TNT(Some(texture_ids::TNT)); 6],
     )));
 
-    objects
+    // === LIGHTS ===
+    let lights = vec![
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 15.0, 0.0 + offset_z),
+            18.0,
+            Color::new(255, 250, 240, 255), // Warm sunlight
+            0.7,
+        ),
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 1.0, -4.0 + offset_z),
+            5.0,
+            Color::new(200, 230, 255, 255), // Cool backlight
+            0.35,
+        ),
+        Light::soft(
+            Vector3::new(-5.0 + offset_x, 2.0, 0.0 + offset_z),
+            3.5,
+            Color::new(200, 220, 255, 255), // Cool blue from left
+            0.25,
+        ),
+        Light::soft(
+            Vector3::new(5.0 + offset_x, 2.0, 0.0 + offset_z),
+            3.5,
+            Color::new(255, 240, 220, 255), // Warm from right
+            0.22,
+        ),
+    ];
+
+    (objects, lights)
+}
+pub fn create_treasure_vault() -> (Vec<Object>, Vec<Light>) {
+    let mut objects = Vec::new();
+
+    let offset_x = 0.0;
+    let offset_z = 0.0;
+
+    for x in -2..=2 as i32 {
+        for z in -2..=2 as i32 {
+            // Create a checkerboard pattern in the center area
+            let is_center = x.abs() <= 1 && z.abs() <= 1;
+            let is_dark = (x + z) % 2 == 0;
+
+            let top_material = if is_center && is_dark {
+                Material::DIRT(Some(texture_ids::DIRT)) // Dark squares
+            } else {
+                Material::STONE(Some(texture_ids::STONE)) // Light squares
+            };
+
+            objects.push(Object::Cube(Cube::new_with_center(
+                Vector3::new((x as f32) + offset_x, -1.0, (z as f32) + offset_z),
+                CUBE_SIZE,
+                [
+                    Material::STONE(Some(texture_ids::STONE)), // Bottom
+                    Material::STONE(Some(texture_ids::STONE)), // Front
+                    Material::STONE(Some(texture_ids::STONE)), // Back
+                    top_material,                              // Top
+                    Material::STONE(Some(texture_ids::STONE)), // Left
+                    Material::STONE(Some(texture_ids::STONE)), // Right
+                ],
+            )));
+        }
+    }
+
+    // === CENTRAL TREASURE PODIUM ===
+    // Stone base pedestal
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-0.5 + offset_x, 0.0, -0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.5 + offset_x, 0.0, -0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-0.5 + offset_x, 0.0, 0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.5 + offset_x, 0.0, 0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+
+    // Diamond blocks on top (2x2 - the stars!)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-0.5 + offset_x, 1.0, -0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.5 + offset_x, 1.0, -0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::DIAMOND(Some(texture_ids::DIAMONG_BLOCK)); 6],
+    )));
+
+    // Gold blocks flanking diamonds
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-0.5 + offset_x, 1.0, 0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.5 + offset_x, 1.0, 0.5 + offset_z),
+        CUBE_SIZE,
+        [Material::GOLD(Color::new(255, 215, 0, 255), Some(texture_ids::GOLD)); 6],
+    )));
+
+    // === BACK WALL (stone frame with embedded treasures) ===
+    // Left wall column (3 blocks tall)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 0.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 1.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 2.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+
+    // Right wall column (3 blocks tall)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 0.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 1.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 2.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::STONE(Some(texture_ids::STONE)); 6],
+    )));
+
+    // Center wall with embedded emerald ore
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(0.0 + offset_x, 1.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-1.0 + offset_x, 1.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(1.0 + offset_x, 1.0, 2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::EMERALD_ORE(Some(texture_ids::EMERALD_ORE)); 6],
+    )));
+
+    // === ICE ACCENT BLOCKS (for reflection chains) ===
+    // Strategic ice placement for interesting reflections
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 0.0, -1.0 + offset_z),
+        CUBE_SIZE,
+        [Material::ICE(Some(texture_ids::ICE)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 0.0, -1.0 + offset_z),
+        CUBE_SIZE,
+        [Material::ICE(Some(texture_ids::ICE)); 6],
+    )));
+
+    // === DECORATIVE ELEMENTS ===
+    // Honeycomb blocks (warm accents)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 0.0, 0.0 + offset_z),
+        CUBE_SIZE,
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 0.0, 0.0 + offset_z),
+        CUBE_SIZE,
+        [Material::HONEYCOMB(Some(texture_ids::HONEYCOMB)); 6],
+    )));
+
+    // Oak log corner posts (front corners)
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(-2.0 + offset_x, 0.0, -2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+    )));
+    objects.push(Object::Cube(Cube::new_with_center(
+        Vector3::new(2.0 + offset_x, 0.0, -2.0 + offset_z),
+        CUBE_SIZE,
+        [Material::OAK_LOG(Some(texture_ids::OAK_LOG)); 6],
+    )));
+
+    // === LIGHTS ===
+    let lights = vec![
+        // Main dramatic overhead light (spotlight effect)
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 6.0, -1.0 + offset_z),
+            20.0,
+            Color::new(255, 245, 230, 255), // Warm spotlight on treasures
+            0.8,
+        ),
+        // Secondary fill light from back-left (to illuminate reflections)
+        Light::soft(
+            Vector3::new(-2.0 + offset_x, 4.0, 3.0 + offset_z),
+            10.0,
+            Color::new(200, 220, 255, 255), // Cool fill
+            0.4,
+        ),
+        // Accent light from right (creates sparkle on gold/diamond)
+        Light::soft(
+            Vector3::new(3.0 + offset_x, 3.0, 0.0 + offset_z),
+            8.0,
+            Color::new(255, 240, 220, 255), // Warm accent
+            0.35,
+        ),
+        // Subtle side rim lights for depth (four cardinal directions)
+        Light::soft(
+            Vector3::new(-4.5 + offset_x, 2.5, 0.0 + offset_z),
+            4.0,
+            Color::new(180, 200, 255, 255), // Cool blue from left
+            0.28,
+        ),
+        Light::soft(
+            Vector3::new(4.5 + offset_x, 2.5, 0.0 + offset_z),
+            4.0,
+            Color::new(255, 230, 200, 255), // Warm orange from right
+            0.26,
+        ),
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 2.5, -4.5 + offset_z),
+            4.0,
+            Color::new(255, 220, 240, 255), // Soft pink from front
+            0.27,
+        ),
+        Light::soft(
+            Vector3::new(0.0 + offset_x, 2.5, 4.5 + offset_z),
+            4.0,
+            Color::new(200, 255, 230, 255), // Soft green from back
+            0.25,
+        ),
+    ];
+
+    (objects, lights)
 }

@@ -13,22 +13,24 @@ use rayon::prelude::*;
 use std::f32::consts::PI;
 use std::sync::Mutex;
 
+const MAX_TRANSPARENT_HITS: usize = 3;
+
 const MAX_SURFACE_EMISSION: f32 = 0.3;
 
-const MAX_RECURSION_DEPTH: u32 = 4;
+const MAX_RECURSION_DEPTH: u32 = 2;
 
 const LIGHT_ATTENUTATION: f32 = 0.7;
 
 const SHADOW_BIAS: f32 = 0.001;
 
 const SHADOW_SAMPLES_MIN: usize = 1;
-const SHADOW_SAMPLES_MAX: usize = 4;
-const DISTANCE_NEAR: f32 = 5.0;
-const DISTANCE_FAR: f32 = 20.0;
-const SAMPLES_NEAR: usize = 4;
+const SHADOW_SAMPLES_MAX: usize = 2;
+const DISTANCE_NEAR: f32 = 8.0;
+const DISTANCE_FAR: f32 = 10.0;
+const SAMPLES_NEAR: usize = 2;
 const SAMPLES_FAR: usize = 1;
 
-const MIN_RAY_CONTRIBUTION: f32 = 0.01;
+const MIN_RAY_CONTRIBUTION: f32 = 0.05;
 
 #[derive(Clone, Copy)]
 struct EmissiveLight {
@@ -99,42 +101,38 @@ pub fn render(
 }
 
 fn collect_emissive_lights(objects: &[Object]) -> Vec<EmissiveLight> {
-    let mut emissive_lights = Vec::new();
-
-    for object in objects {
-        let (material, position) = match object {
-            Object::Sphere(sphere) => (sphere.material(), sphere.center()),
-            Object::Cube(cube) => {
-                let materials = cube.materials;
-                let has_emission = materials.iter().any(|m| m.emission_strength > 0.5);
-
-                if !has_emission {
-                    continue;
-                }
-
-                let best_material = materials
-                    .iter()
-                    .max_by(|a, b| {
+    objects
+        .par_iter() // Parallel iterator
+        .filter_map(|object| {
+            let (material, position) = match object {
+                Object::Sphere(sphere) => (sphere.material(), sphere.center()),
+                Object::Cube(cube) => {
+                    let materials = cube.materials;
+                    let best_material = materials.iter().max_by(|a, b| {
                         a.emission_strength
                             .partial_cmp(&b.emission_strength)
                             .unwrap()
-                    })
-                    .unwrap();
+                    })?;
 
-                (*best_material, cube.center)
+                    if best_material.emission_strength <= 0.5 {
+                        return None;
+                    }
+
+                    (*best_material, cube.center)
+                }
+            };
+
+            if material.emission_strength > 0.5 {
+                Some(EmissiveLight {
+                    position,
+                    color: material.emission,
+                    strength: material.emission_strength,
+                })
+            } else {
+                None
             }
-        };
-
-        if material.emission_strength > 0.5 {
-            emissive_lights.push(EmissiveLight {
-                position,
-                color: material.emission,
-                strength: material.emission_strength,
-            });
-        }
-    }
-
-    emissive_lights
+        })
+        .collect()
 }
 
 pub fn cast_ray(
@@ -381,60 +379,123 @@ fn calculate_lighting(
 ) -> Color {
     let material = intersection.material();
 
-    // Sample texture if material has one
-    let (base_color, final_normal, final_specular) = if let Some(texture_id) = material.texture_id {
-        if let Some(pack) = texture_manager.active_pack() {
-            if let Some(texture) = pack.get_texture(texture_id) {
-                let sampled_color = texture.diffuse.sample(intersection.uv.x, intersection.uv.y);
+    // Fast path: No texture (most common for simple materials)
+    if material.texture_id.is_none() {
+        return calculate_lighting_simple(
+            intersection,
+            normal,
+            view_dir,
+            lights,
+            emissive_lights,
+            bvh,
+            skybox,
+            material.diffuse,
+            *normal,
+            material.specular,
+            material.albedo,
+        );
+    }
 
-                let final_normal = if let Some(ref normal_map) = texture.normal {
-                    let tangent_normal =
-                        normal_map.sample_normal(intersection.uv.x, intersection.uv.y);
-                    let (tangent, bitangent, _) =
-                        calculate_tangent_basis_for_cube(normal, intersection.face_index);
-                    tangent_to_world(&tangent_normal, &tangent, &bitangent, normal)
-                } else {
-                    *normal
-                };
-
-                let final_specular = if let Some(ref specular_map) = texture.specular {
-                    let intensity =
-                        specular_map.sample_specular(intersection.uv.x, intersection.uv.y);
-                    material.specular * (intensity * intensity)
-                } else {
-                    material.specular
-                };
-
-                (sampled_color, final_normal, final_specular)
-            } else {
-                (material.diffuse, *normal, material.specular)
-            }
-        } else {
-            (material.diffuse, *normal, material.specular)
+    // Textured path - validate texture exists
+    let pack = match texture_manager.active_pack() {
+        Some(p) => p,
+        None => {
+            return calculate_lighting_simple(
+                intersection,
+                normal,
+                view_dir,
+                lights,
+                emissive_lights,
+                bvh,
+                skybox,
+                material.diffuse,
+                *normal,
+                material.specular,
+                material.albedo,
+            );
         }
-    } else {
-        (material.diffuse, *normal, material.specular)
     };
 
-    let normal = &final_normal;
+    let texture = match pack.get_texture(material.texture_id.unwrap()) {
+        Some(t) => t,
+        None => {
+            return calculate_lighting_simple(
+                intersection,
+                normal,
+                view_dir,
+                lights,
+                emissive_lights,
+                bvh,
+                skybox,
+                material.diffuse,
+                *normal,
+                material.specular,
+                material.albedo,
+            );
+        }
+    };
 
+    // Sample all texture maps once
+    let sampled_color = texture.diffuse.sample(intersection.uv.x, intersection.uv.y);
+
+    let final_normal = if let Some(ref normal_map) = texture.normal {
+        let tangent_normal = normal_map.sample_normal(intersection.uv.x, intersection.uv.y);
+        let (tangent, bitangent, _) =
+            calculate_tangent_basis_for_cube(normal, intersection.face_index);
+        tangent_to_world(&tangent_normal, &tangent, &bitangent, normal)
+    } else {
+        *normal
+    };
+
+    let final_specular = if let Some(ref specular_map) = texture.specular {
+        let intensity = specular_map.sample_specular(intersection.uv.x, intersection.uv.y);
+        material.specular * (intensity * intensity)
+    } else {
+        material.specular
+    };
+
+    calculate_lighting_simple(
+        intersection,
+        &final_normal,
+        view_dir,
+        lights,
+        emissive_lights,
+        bvh,
+        skybox,
+        sampled_color,
+        final_normal,
+        final_specular,
+        material.albedo,
+    )
+}
+
+#[inline(always)]
+fn calculate_lighting_simple(
+    intersection: &Intersect,
+    normal: &Vector3,
+    view_dir: &Vector3,
+    lights: &[Light],
+    emissive_lights: &[EmissiveLight],
+    bvh: &BVH,
+    skybox: &Skybox,
+    base_color: Color,
+    shading_normal: Vector3,
+    specular_power: f32,
+    albedo: [f32; 3],
+) -> Color {
     // Convert base_color to normalized RGB for calculations
     let base_r = base_color.r as f32 / 255.0;
     let base_g = base_color.g as f32 / 255.0;
     let base_b = base_color.b as f32 / 255.0;
 
     // Skybox ambient
-    let ambient_dir = *normal;
-    let ambient_sample = skybox.sample(&ambient_dir);
+    let ambient_sample = skybox.sample(&shading_normal);
     let ambient_intensity = 0.2;
 
     // Apply ambient to base color
-    let mut final_r =
-        (ambient_sample.r as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_r;
-    let mut final_g =
-        (ambient_sample.g as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_g;
-    let mut final_b =
-        (ambient_sample.b as f32 / 255.0) * ambient_intensity * material.albedo[0] * base_b;
+    let mut final_r = (ambient_sample.r as f32 / 255.0) * ambient_intensity * albedo[0] * base_r;
+    let mut final_g = (ambient_sample.g as f32 / 255.0) * ambient_intensity * albedo[0] * base_g;
+    let mut final_b = (ambient_sample.b as f32 / 255.0) * ambient_intensity * albedo[0] * base_b;
 
     let mut spec_r = 0.0;
     let mut spec_g = 0.0;
@@ -442,6 +503,10 @@ fn calculate_lighting(
 
     // Process regular lights
     for light in lights {
+        let light_vec = light.position - intersection.point;
+        let light_distance = light_vec.length();
+        let light_dir = light_vec.scale_by(1.0 / light_distance);
+
         let visibility = if light.radius > 0.01 {
             calculate_adaptive_visibility_with_distance(
                 &intersection.point,
@@ -451,10 +516,8 @@ fn calculate_lighting(
                 intersection.distance(),
             )
         } else {
-            let light_dir = (light.position - intersection.point).normalized();
-            let light_distance = (light.position - intersection.point).length();
-            let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
-            if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
+            let shadow_origin = intersection.point + shading_normal * SHADOW_BIAS;
+            if !cast_shadow_ray(shadow_origin, &light_dir, light_distance, bvh) {
                 1.0
             } else {
                 0.0
@@ -462,12 +525,11 @@ fn calculate_lighting(
         };
 
         if visibility > 0.0 {
-            let light_dir = (light.position - intersection.point).normalized();
             let light_intensity = light.get_intensity_at(&intersection.point);
 
             // Diffuse
             let diffuse_intensity =
-                normal.dot(light_dir).max(0.0) * light_intensity * visibility * material.albedo[0];
+                shading_normal.dot(light_dir).max(0.0) * light_intensity * visibility * albedo[0];
             let light_r = light.color.r as f32 / 255.0;
             let light_g = light.color.g as f32 / 255.0;
             let light_b = light.color.b as f32 / 255.0;
@@ -477,11 +539,11 @@ fn calculate_lighting(
             final_b += diffuse_intensity * light_b * base_b;
 
             // Specular
-            let reflect_dir = reflect(&light_dir, normal);
-            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(final_specular)
+            let reflect_dir = reflect(&light_dir, &shading_normal);
+            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(specular_power)
                 * light_intensity
                 * visibility
-                * material.albedo[1];
+                * albedo[1];
 
             spec_r += specular_intensity * light_r;
             spec_g += specular_intensity * light_g;
@@ -491,18 +553,20 @@ fn calculate_lighting(
 
     // Process emissive lights
     for emissive_light in emissive_lights {
-        let light_dir = (emissive_light.position - intersection.point).normalized();
-        let light_distance = (emissive_light.position - intersection.point).length();
-        let shadow_origin = intersection.point + *normal * SHADOW_BIAS;
+        let light_vec = emissive_light.position - intersection.point;
+        let light_distance = light_vec.length();
+        let light_dir = light_vec.scale_by(1.0 / light_distance);
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
+        let shadow_origin = intersection.point + shading_normal * SHADOW_BIAS;
+
+        if !cast_shadow_ray(shadow_origin, &light_dir, light_distance, bvh) {
             let base_intensity = emissive_light.strength;
             let light_intensity =
                 base_intensity / (1.0 + light_distance * light_distance * LIGHT_ATTENUTATION);
 
             // Diffuse
             let diffuse_intensity =
-                normal.dot(light_dir).max(0.0) * light_intensity * material.albedo[0];
+                shading_normal.dot(light_dir).max(0.0) * light_intensity * albedo[0];
             let light_r = emissive_light.color.r as f32 / 255.0;
             let light_g = emissive_light.color.g as f32 / 255.0;
             let light_b = emissive_light.color.b as f32 / 255.0;
@@ -512,10 +576,10 @@ fn calculate_lighting(
             final_b += diffuse_intensity * light_b * base_b;
 
             // Specular
-            let reflect_dir = reflect(&light_dir, normal);
-            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(final_specular)
+            let reflect_dir = reflect(&light_dir, &shading_normal);
+            let specular_intensity = view_dir.dot(reflect_dir).max(0.0).powf(specular_power)
                 * light_intensity
-                * material.albedo[1];
+                * albedo[1];
 
             spec_r += specular_intensity * light_r;
             spec_g += specular_intensity * light_g;
@@ -539,6 +603,17 @@ fn calculate_adaptive_visibility_with_distance(
     bvh: &BVH,
     distance_from_camera: f32,
 ) -> f32 {
+    if distance_from_camera > DISTANCE_FAR || light.radius < 0.01 {
+        let light_dir = (light.position - *point).normalized();
+        let light_distance = (light.position - *point).length();
+        let shadow_origin = *point + *normal * SHADOW_BIAS;
+        return if !cast_shadow_ray(shadow_origin, &light_dir, light_distance, bvh) {
+            1.0
+        } else {
+            0.0
+        };
+    }
+
     let sample_count = calculate_sample_count_for_distance(distance_from_camera);
 
     let mut hit_count = 0;
@@ -553,7 +628,7 @@ fn calculate_adaptive_visibility_with_distance(
         let light_distance = (sample_position - *point).length();
         let shadow_origin = *point + *normal * SHADOW_BIAS;
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
+        if !cast_shadow_ray(shadow_origin, &light_dir, light_distance, bvh) {
             hit_count += 1;
         }
         total_samples += 1;
@@ -577,7 +652,7 @@ fn calculate_adaptive_visibility_with_distance(
         let light_distance = (sample_position - *point).length();
         let shadow_origin = *point + *normal * SHADOW_BIAS;
 
-        if !cast_shadow_ray(&shadow_origin, &light_dir, light_distance, bvh) {
+        if !cast_shadow_ray(shadow_origin, &light_dir, light_distance, bvh) {
             hit_count += 1;
         }
         total_samples += 1;
@@ -599,40 +674,50 @@ fn calculate_sample_count_for_distance(distance: f32) -> usize {
 }
 
 fn cast_shadow_ray(
-    ray_origin: &Vector3,
+    mut ray_origin: Vector3,
     ray_direction: &Vector3,
-    light_distance: f32,
+    mut light_distance: f32,
     bvh: &BVH,
 ) -> bool {
-    let intersection = bvh.intersect(ray_origin, ray_direction);
+    let mut accumulated_transparency = 1.0;
+    const MIN_VISIBILITY: f32 = 0.05; // Early exit threshold
 
-    if intersection.is_intersecting() {
+    for _ in 0..MAX_TRANSPARENT_HITS {
+        let intersection = bvh.intersect(&ray_origin, ray_direction);
+
+        if !intersection.is_intersecting() {
+            return false;
+        }
+
         let material = intersection.material();
         let distance = intersection.distance();
 
-        // If we hit an emissive surface before or at the target distance,
-        // we've reached a light source - not shadowed
         if material.emission_strength > 0.5 && distance <= light_distance + 0.01 {
-            return false; // Hit a light source
+            return false;
         }
 
-        // NEW: For transparent objects, continue the shadow ray through them
         if material.transparency > 0.5 && distance < light_distance {
-            // Continue shadow ray from other side of transparent object
-            let new_origin = intersection.point + *ray_direction * (SHADOW_BIAS * 2.0);
-            let remaining_distance = light_distance - distance;
+            accumulated_transparency *= material.transparency;
 
-            // Recursively check if something blocks light beyond the transparent object
-            return cast_shadow_ray(&new_origin, ray_direction, remaining_distance, bvh);
+            // NEW: Early exit if visibility too low
+            if accumulated_transparency < MIN_VISIBILITY {
+                return true; // Essentially opaque
+            }
+
+            ray_origin = intersection.point + *ray_direction * (SHADOW_BIAS * 2.0);
+            light_distance -= distance;
+            continue;
         }
 
-        // If we hit an opaque object before reaching the light, it's blocked
         if distance < light_distance {
-            return true; // Shadowed by opaque object
+            return true;
         }
+
+        return false;
     }
 
-    false // Not shadowed
+    // NEW: Return based on accumulated transparency
+    accumulated_transparency < 0.5
 }
 
 fn refract(incident: &Vector3, normal: &Vector3, n1: f32, n2: f32) -> Option<Vector3> {

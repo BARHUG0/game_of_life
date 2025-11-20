@@ -407,7 +407,6 @@ impl BVH {
         ray_direction: &Vector3,
         mut closest_distance: f32,
     ) -> Intersect {
-        // Test against node's bounding box
         if !node.bounds().intersect(ray_origin, ray_direction) {
             return Intersect::empty();
         }
@@ -416,37 +415,93 @@ impl BVH {
             BVHNode::Leaf { object_index, .. } => {
                 let object = &self.objects[*object_index];
                 let intersection = object.ray_intersect(ray_origin, ray_direction);
-
                 if intersection.is_intersecting() && intersection.distance() < closest_distance {
                     return intersection;
                 }
-
                 Intersect::empty()
             }
             BVHNode::Internal { left, right, .. } => {
-                // Traverse both children
-                let left_hit =
-                    self.traverse_node(left, ray_origin, ray_direction, closest_distance);
+                // Calculate distances to both children's AABBs
+                let left_dist = Self::aabb_distance(left.bounds(), ray_origin, ray_direction);
+                let right_dist = Self::aabb_distance(right.bounds(), ray_origin, ray_direction);
 
-                if left_hit.is_intersecting() {
-                    closest_distance = left_hit.distance();
-                }
-
-                let right_hit =
-                    self.traverse_node(right, ray_origin, ray_direction, closest_distance);
-
-                // Return closest hit
-                if !left_hit.is_intersecting() {
-                    right_hit
-                } else if !right_hit.is_intersecting() {
-                    left_hit
-                } else if left_hit.distance() < right_hit.distance() {
-                    left_hit
+                // Order traversal by distance
+                let (first, second) = if left_dist < right_dist {
+                    (left, right)
                 } else {
-                    right_hit
+                    (right, left)
+                };
+
+                // Traverse nearest first
+                let first_hit =
+                    self.traverse_node(first, ray_origin, ray_direction, closest_distance);
+
+                if first_hit.is_intersecting() {
+                    closest_distance = first_hit.distance();
                 }
+
+                // Only traverse second if it could be closer
+                let second_dist = if left_dist < right_dist {
+                    right_dist
+                } else {
+                    left_dist
+                };
+                if second_dist < closest_distance {
+                    let second_hit =
+                        self.traverse_node(second, ray_origin, ray_direction, closest_distance);
+
+                    if !first_hit.is_intersecting() {
+                        return second_hit;
+                    } else if second_hit.is_intersecting()
+                        && second_hit.distance() < first_hit.distance()
+                    {
+                        return second_hit;
+                    }
+                }
+
+                first_hit
             }
         }
+    }
+
+    // Helper function
+    fn aabb_distance(aabb: &AABB, ray_origin: &Vector3, ray_direction: &Vector3) -> f32 {
+        let mut tmin = f32::NEG_INFINITY;
+
+        for axis in 0..3 {
+            let origin = match axis {
+                0 => ray_origin.x,
+                1 => ray_origin.y,
+                _ => ray_origin.z,
+            };
+            let direction = match axis {
+                0 => ray_direction.x,
+                1 => ray_direction.y,
+                _ => ray_direction.z,
+            };
+            let min_val = match axis {
+                0 => aabb.min.x,
+                1 => aabb.min.y,
+                _ => aabb.min.z,
+            };
+            let max_val = match axis {
+                0 => aabb.max.x,
+                1 => aabb.max.y,
+                _ => aabb.max.z,
+            };
+
+            if direction.abs() > 1e-6 {
+                let inv_d = 1.0 / direction;
+                let mut t1 = (min_val - origin) * inv_d;
+                let mut t2 = (max_val - origin) * inv_d;
+                if t1 > t2 {
+                    std::mem::swap(&mut t1, &mut t2);
+                }
+                tmin = tmin.max(t1);
+            }
+        }
+
+        tmin.max(0.0)
     }
 
     // Get reference to objects (for shadow rays, emissive collection, etc.)
