@@ -4,6 +4,8 @@
 
 [Video de Montaje HorizonZeroCast](https://youtu.be/nJ3cDfck35o)
 
+[Glass Demo](https://youtu.be/KMkrOOd1O78)
+
 Este es un raytracer basado en física implementado en Rust utilizando raylib-rs para ventanas y renderizado básico. El proyecto presenta un motor de raytracing en tiempo real con aceleración BVH (Bounding Volume Hierarchy), ciclos dinámicos de día/noche y propiedades avanzadas de materiales incluyendo transparencia, refracción, reflexión y superficies emisivas. El renderizador soporta mapeo de texturas con mapas normales y especulares, sombras suaves y efectos atmosféricos.
 
 ## Características Principales
