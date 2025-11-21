@@ -1,4 +1,4 @@
-# Rust Raytracer con Aceleración BVH
+# Rust Raytracer
 
 ## Descripción General
 
