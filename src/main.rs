@@ -19,6 +19,7 @@ use raylib::prelude::*;
 use render::{Camera, RenderMode, render_model};
 use shader::ShaderType;
 use std::f32::consts::PI;
+use texture_manager::TextureData;
 use uniforms::Uniforms;
 
 const WINDOW_WIDTH: i32 = 1900;
@@ -44,13 +45,36 @@ fn game_loop() {
     let obj = Obj::load("models/sphere.obj").expect("Failed to load Obj");
     let vertex_array = obj.get_vertex_array();
 
-    println!(
-        "Vertices: {}, Indices: {}",
-        obj.vertices().len(),
-        obj.indices().len()
-    );
+    let torus_obj = Obj::load("models/torus.obj").expect("Failed to load torus");
+    let torus_vertex_array = torus_obj.get_vertex_array();
 
-    framebuffer.set_background_color(Color::new(10, 10, 30, 255));
+    // Load noise textures
+    let mut noise_image_0 =
+        Image::load_image("textures/perlin_noise.png").expect("Failed to load noise texture 0");
+    println!(
+        "Loaded noise texture 0: {}x{}",
+        noise_image_0.width, noise_image_0.height
+    );
+    let noise_texture_0 = TextureData::from_image(&mut noise_image_0);
+
+    // Load accretion disk texture (use perlin as fallback if not found)
+    let noise_texture_1 = if let Ok(mut img) = Image::load_image("textures/accretion_noise.png") {
+        println!("Loaded accretion texture: {}x{}", img.width, img.height);
+        TextureData::from_image(&mut img)
+    } else {
+        panic!("Missing texture_1")
+    };
+
+    // Load turbulence texture (use perlin as fallback if not found)
+    let noise_texture_2 = if let Ok(mut img) = Image::load_image("textures/turbulence_noise.png") {
+        println!("Loaded turbulence texture: {}x{}", img.width, img.height);
+        TextureData::from_image(&mut img)
+    } else {
+        panic!("Missing texture_2")
+    };
+
+    //    framebuffer.set_background_color(Color::new(10, 10, 30, 255));
+    framebuffer.set_background_color(Color::WHITESMOKE);
     framebuffer.set_foreground_color(Color::new(100, 200, 255, 255));
 
     let mut camera = Camera::new(
@@ -67,16 +91,6 @@ fn game_loop() {
     let mut render_mode = RenderMode::Solid;
     let mut current_shader = ShaderType::None;
     let mut time = 0.0f32;
-
-    // Draw UI text
-    let shader_name = match current_shader {
-        ShaderType::Rocky => "Planeta Rocoso",
-        ShaderType::GasGiant => "Gigante Gaseoso",
-        ShaderType::Ringed => "Planeta con anillo",
-        ShaderType::Magenta => "Gigante Magenta (GJ 504 b)",
-        ShaderType::WaterWorld => "Mundo de Agua (Kepler-22 b)",
-        ShaderType::None => "Ninguno",
-    };
 
     while !&handle.window_should_close() {
         framebuffer.clear();
@@ -147,10 +161,6 @@ fn game_loop() {
             current_shader = ShaderType::Ringed;
             println!("Switched to Ringed Planet Shader");
         }
-        if handle.is_key_pressed(KeyboardKey::KEY_ZERO) {
-            current_shader = ShaderType::None;
-            println!("No shader - using solid color");
-        }
         if handle.is_key_pressed(KeyboardKey::KEY_SIX) {
             current_shader = ShaderType::Magenta;
             println!("Switched to Magenta Gas Giant Shader (GJ 504 b)");
@@ -159,35 +169,102 @@ fn game_loop() {
             current_shader = ShaderType::WaterWorld;
             println!("Switched to Water World Shader (Kepler-22 b)");
         }
+        if handle.is_key_pressed(KeyboardKey::KEY_EIGHT) {
+            current_shader = ShaderType::UVDebug;
+            println!("Switched to UV Debug Shader");
+        }
+        if handle.is_key_pressed(KeyboardKey::KEY_NINE) {
+            current_shader = ShaderType::TextureTest;
+            println!("Switched to Texture Test Shader");
+        }
+        if handle.is_key_pressed(KeyboardKey::KEY_ZERO) {
+            current_shader = ShaderType::None;
+            println!("No shader - using solid color");
+        }
+        if handle.is_key_pressed(KeyboardKey::KEY_B) {
+            current_shader = ShaderType::BlackHole;
+            println!("Switched to Black Hole Shader");
+        }
 
-        // Create uniforms
-        let light_direction = Vector3::new(0.0, 0.0, 1.0); // Light coming from camera direction
-        let uniforms = Uniforms::new(time, light_direction, camera.position());
-
-        // Render the model
-        render_model(
-            &mut framebuffer,
-            &vertex_array,
-            translation,
-            scale,
-            rotation,
-            &camera,
-            render_mode,
-            current_shader,
-            &uniforms,
+        let light_direction = Vector3::new(0.0, 0.0, 1.0);
+        let uniforms = Uniforms::new_with_textures(
+            time,
+            light_direction,
+            camera.position(),
+            Some(&noise_texture_0),
+            Some(&noise_texture_1),
+            Some(&noise_texture_2),
         );
+
+        // Render the black hole (sphere) and accretion disk (torus) together
+        if current_shader == ShaderType::BlackHole {
+            // Render accretion disk FIRST (back side)
+
+            // Render black hole sphere (MUCH larger now)
+            render_model(
+                &mut framebuffer,
+                &vertex_array,
+                translation,
+                scale * 1.4, // Much larger sphere - almost as big as inner disk
+                rotation,
+                &camera,
+                render_mode,
+                ShaderType::BlackHole,
+                &uniforms,
+            );
+
+            // Render accretion disk AGAIN on top (gravitational lensing simulation)
+            // This creates the "bent light" effect where you see the disk above and below
+            render_model(
+                &mut framebuffer,
+                &torus_vertex_array,
+                translation,
+                scale * 1.5,
+                rotation,
+                &camera,
+                RenderMode::Solid,
+                ShaderType::AccretionDisk,
+                &uniforms,
+            );
+        } else {
+            // Render normal single object
+            render_model(
+                &mut framebuffer,
+                &vertex_array,
+                translation,
+                scale,
+                rotation,
+                &camera,
+                render_mode,
+                current_shader,
+                &uniforms,
+            );
+        }
 
         let texture = handle
             .load_texture_from_image(&raylib_thread, &framebuffer.color_buffer)
             .expect("The texture loaded from the color buffer should be valid");
 
+        let shader_name = match current_shader {
+            ShaderType::Rocky => "Planeta Rocoso",
+            ShaderType::GasGiant => "Gigante Gaseoso",
+            ShaderType::Ringed => "Planeta con anillo",
+            ShaderType::Magenta => "Gigante Magenta (GJ 504 b)",
+            ShaderType::WaterWorld => "Mundo de Agua (Kepler-22 b)",
+            ShaderType::UVDebug => "UV Debug",
+            ShaderType::TextureTest => "Texture Test",
+            ShaderType::BlackHole => "Agujero Negro + Disco",
+            ShaderType::AccretionDisk => "Disco de Acrecion",
+            ShaderType::None => "Ninguno",
+        };
+
         let mut draw_handle = handle.begin_drawing(&raylib_thread);
         {
-            draw_handle.clear_background(Color::BLACK);
+            draw_handle.clear_background(Color::WHITE);
             draw_handle.draw_texture(&texture, 0, 0, Color::WHITE);
 
             draw_handle.draw_text(
-                &format!("Shader: {} (0/3/4/5/6/7)", shader_name),
+                &format!("Shader: {} (0/3-9)", shader_name),
                 10,
                 10,
                 20,
@@ -196,7 +273,7 @@ fn game_loop() {
 
             draw_handle.draw_text("Modo: 1-Wireframe, 2-Solido", 10, 35, 20, Color::WHITE);
             draw_handle.draw_text(
-                "Movimiento: WASD, Q/E, Rotacion: Flechas, Escala: U/J ",
+                "Movimiento: WASD, Q/E, Rotacion: Flechas, Escala: U/J",
                 10,
                 60,
                 20,

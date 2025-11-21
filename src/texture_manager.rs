@@ -1,5 +1,6 @@
 use raylib::prelude::*;
 
+#[derive(Clone)]
 pub struct TextureData {
     pixels: Vec<Color>,
     width: usize,

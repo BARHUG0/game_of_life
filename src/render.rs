@@ -74,6 +74,7 @@ struct TransformedVertex {
     world_position: Vector3,
     object_position: Vector3,
     normal: Vector3,
+    tex_coords: Vector2,
 }
 
 fn apply_model_transform(vertex: &Vertex, model_matrix: &Matrix) -> (Vector4, Vector3) {
@@ -161,6 +162,7 @@ pub fn render_model(
             world_position: Vector3::new(world_space.x, world_space.y, world_space.z),
             object_position: object_pos,
             normal: world_normal,
+            tex_coords: modified_vertex.tex_coords(),
         });
     }
 
@@ -270,12 +272,19 @@ fn filled_triangle(
                         w * v1.normal.z + v * v2.normal.z + u * v3.normal.z,
                     );
 
+                    // Interpolate texture coordinates
+                    let tex_coords = Vector2::new(
+                        w * v1.tex_coords.x + v * v2.tex_coords.x + u * v3.tex_coords.x,
+                        w * v1.tex_coords.y + v * v2.tex_coords.y + u * v3.tex_coords.y,
+                    );
+
                     let fragment = Fragment::new(
                         Vector2::new(x as f32, y as f32),
                         world_pos,
                         object_pos,
                         normal,
                         depth,
+                        tex_coords,
                     );
 
                     let color = if let Some(color) = shader.fragment_shader(&fragment, uniforms) {

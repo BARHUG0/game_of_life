@@ -7,6 +7,7 @@ pub struct Fragment {
     object_position: Vector3,
     normal: Vector3,
     depth: f32,
+    tex_coords: Vector2,
 }
 
 impl Fragment {
@@ -16,6 +17,7 @@ impl Fragment {
         object_position: Vector3,
         normal: Vector3,
         depth: f32,
+        tex_coords: Vector2,
     ) -> Self {
         Fragment {
             position,
@@ -23,6 +25,7 @@ impl Fragment {
             object_position,
             normal,
             depth,
+            tex_coords,
         }
     }
 
@@ -44,5 +47,9 @@ impl Fragment {
 
     pub fn depth(&self) -> f32 {
         self.depth
+    }
+
+    pub fn tex_coords(&self) -> Vector2 {
+        self.tex_coords
     }
 }

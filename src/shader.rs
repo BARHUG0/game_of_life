@@ -4,14 +4,18 @@ use crate::vertex::Vertex;
 use raylib::prelude::*;
 use std::f32::consts::PI;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ShaderType {
     None,
     Rocky,
     GasGiant,
     Ringed,
-    Magenta,    // Add this
-    WaterWorld, // Add this
+    Magenta,
+    WaterWorld,
+    UVDebug,
+    TextureTest,
+    BlackHole,
+    AccretionDisk, // ADD THIS
 }
 
 impl ShaderType {
@@ -21,8 +25,12 @@ impl ShaderType {
             ShaderType::Rocky => Some(rocky_fragment_shader(fragment, uniforms)),
             ShaderType::GasGiant => Some(gas_giant_fragment_shader(fragment, uniforms)),
             ShaderType::Ringed => Some(ringed_fragment_shader(fragment, uniforms)),
-            ShaderType::Magenta => Some(magenta_fragment_shader(fragment, uniforms)), // Add this
-            ShaderType::WaterWorld => Some(water_world_fragment_shader(fragment, uniforms)), // Add this
+            ShaderType::Magenta => Some(magenta_fragment_shader(fragment, uniforms)),
+            ShaderType::WaterWorld => Some(water_world_fragment_shader(fragment, uniforms)),
+            ShaderType::UVDebug => Some(uv_debug_shader(fragment, uniforms)),
+            ShaderType::TextureTest => Some(texture_test_shader(fragment, uniforms)),
+            ShaderType::BlackHole => Some(black_hole_fragment_shader(fragment, uniforms)),
+            ShaderType::AccretionDisk => Some(accretion_disk_fragment_shader(fragment, uniforms)), // ADD THIS
         }
     }
 
@@ -866,6 +874,273 @@ fn water_world_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> 
         .min(255.0)
         .max(0.0) as u8;
     let b = (with_clouds.z * final_intensity * 255.0)
+        .min(255.0)
+        .max(0.0) as u8;
+
+    Color::new(r, g, b, 255)
+}
+
+/// UV Debug Shader - Visualizes texture coordinates as colors
+/// Red = U coordinate, Green = V coordinate
+fn uv_debug_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
+    let uv = fragment.tex_coords();
+
+    // Wrap UVs to [0, 1] range
+    let u = uv.x - uv.x.floor();
+    let v = uv.y - uv.y.floor();
+
+    let r = (u * 255.0).min(255.0).max(0.0) as u8;
+    let g = (v * 255.0).min(255.0).max(0.0) as u8;
+    let b = 0;
+
+    Color::new(r, g, b, 255)
+}
+
+/// Texture Test Shader - Samples from the noise texture
+fn texture_test_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
+    // Check if texture is available
+    if let Some(texture) = uniforms.texture() {
+        let uv = fragment.tex_coords();
+
+        // Sample the texture
+        let tex_color = texture.sample(uv.x, uv.y);
+
+        // Apply simple lighting
+        let normal = fragment.normal();
+        let normal_length =
+            (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z).sqrt();
+        let normalized_normal = Vector3::new(
+            normal.x / normal_length,
+            normal.y / normal_length,
+            normal.z / normal_length,
+        );
+
+        let light_dir = uniforms.light_direction();
+        let light_intensity = (normalized_normal.x * light_dir.x
+            + normalized_normal.y * light_dir.y
+            + normalized_normal.z * light_dir.z)
+            .max(0.0);
+
+        let ambient = 0.3;
+        let final_intensity = ambient + light_intensity * 0.7;
+
+        let r = (tex_color.r as f32 * final_intensity).min(255.0).max(0.0) as u8;
+        let g = (tex_color.g as f32 * final_intensity).min(255.0).max(0.0) as u8;
+        let b = (tex_color.b as f32 * final_intensity).min(255.0).max(0.0) as u8;
+
+        Color::new(r, g, b, 255)
+    } else {
+        // No texture available - return magenta as error color
+        Color::new(255, 0, 255, 255)
+    }
+}
+fn black_hole_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
+    let pos = fragment.object_position();
+    let world_pos = fragment.world_position();
+    let normal = fragment.normal();
+
+    let normal_length = (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z).sqrt();
+    let normalized_normal = Vector3::new(
+        normal.x / normal_length,
+        normal.y / normal_length,
+        normal.z / normal_length,
+    );
+
+    let distance_from_center = (pos.x * pos.x + pos.y * pos.y + pos.z * pos.z).sqrt();
+
+    // Spacetime distortion texture
+    let distortion = if let Some(texture) = uniforms.texture_0() {
+        let scale = 3.0;
+        let uv_x = pos.x * scale + uniforms.time() * 0.15;
+        let uv_y = pos.z * scale - uniforms.time() * 0.12;
+        let uv_z = pos.y * scale + uniforms.time() * 0.1;
+        let noise1 = texture.sample_grayscale(uv_x, uv_y);
+        let noise2 = texture.sample_grayscale(uv_y, uv_z);
+        ((noise1 + noise2) * 0.5 - 0.5).abs() * 0.3
+    } else {
+        0.0
+    };
+
+    // Core darkness - nearly perfect black in center
+    let core_radius = 0.6;
+    let darkness = if distance_from_center < core_radius {
+        (distance_from_center / core_radius).powf(6.0)
+    } else {
+        1.0
+    };
+
+    // Photon sphere - bright ring where light orbits
+    let photon_sphere_radius = 0.75;
+    let photon_sphere_width = 0.08;
+    let dist_to_photon = (distance_from_center - photon_sphere_radius).abs();
+    let photon_glow = if dist_to_photon < photon_sphere_width {
+        let intensity = 1.0 - (dist_to_photon / photon_sphere_width);
+        intensity.powf(2.0) * 1.5
+    } else {
+        0.0
+    };
+
+    // Edge glow (subtle Hawking radiation)
+    let edge_radius = 0.88;
+    let edge_width = 0.12;
+    let dist_to_edge = (distance_from_center - edge_radius).abs();
+    let edge_glow = if dist_to_edge < edge_width {
+        let intensity = 1.0 - (dist_to_edge / edge_width);
+        intensity.powf(2.5) * 0.6
+    } else {
+        0.0
+    };
+
+    // Atmospheric scattering effect (rim lighting)
+    let view_dir = Vector3::new(
+        uniforms.camera_position().x - world_pos.x,
+        uniforms.camera_position().y - world_pos.y,
+        uniforms.camera_position().z - world_pos.z,
+    );
+    let view_length =
+        (view_dir.x * view_dir.x + view_dir.y * view_dir.y + view_dir.z * view_dir.z).sqrt();
+    let normalized_view = Vector3::new(
+        view_dir.x / view_length,
+        view_dir.y / view_length,
+        view_dir.z / view_length,
+    );
+
+    let fresnel = 1.0
+        - (normalized_normal.x * normalized_view.x
+            + normalized_normal.y * normalized_view.y
+            + normalized_normal.z * normalized_view.z)
+            .abs();
+    let rim_glow = fresnel.powf(3.0) * 0.4;
+
+    // Subtle pulsing
+    let pulse = ((uniforms.time() * 2.0).sin() * 0.5 + 0.5) * 0.2 + 0.8;
+
+    // Combine all glow effects
+    let total_glow = (photon_glow + edge_glow + rim_glow + distortion * 0.5) * pulse * darkness;
+
+    // Warm orange-ish glow (like Gargantua) blending to blue at edges
+    let is_edge = dist_to_edge < edge_width * 0.5;
+
+    let (r_factor, g_factor, b_factor) = if photon_glow > 0.5 {
+        // Photon sphere - bright orange
+        (1.0, 0.7, 0.3)
+    } else if is_edge {
+        // Edge - blue tint
+        (0.4, 0.6, 1.0)
+    } else {
+        // Middle - orange/amber
+        (1.0, 0.6, 0.2)
+    };
+
+    let r = (total_glow * r_factor * 255.0).min(255.0).max(0.0) as u8;
+    let g = (total_glow * g_factor * 255.0).min(255.0).max(0.0) as u8;
+    let b = (total_glow * b_factor * 255.0).min(255.0).max(0.0) as u8;
+
+    Color::new(r, g, b, 255)
+}
+
+fn accretion_disk_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
+    let pos = fragment.object_position();
+    let tex_coords = fragment.tex_coords();
+
+    let radial_distance = (pos.x * pos.x + pos.z * pos.z).sqrt();
+
+    // Make inner edge fade to black (where it meets the event horizon)
+    let inner_fade_start = 0.3;
+    let inner_fade = if radial_distance < inner_fade_start {
+        (radial_distance / inner_fade_start).powf(2.0)
+    } else {
+        1.0
+    };
+
+    // LAYER 1: Large swirling accretion patterns
+    let accretion_noise = if let Some(texture) = uniforms.texture_1() {
+        let angle = pos.x.atan2(pos.z);
+        let rotation_speed = 1.2 / (radial_distance + 0.4);
+        let rotating_u = tex_coords.x + uniforms.time() * rotation_speed;
+        let noise = texture.sample_grayscale(rotating_u * 2.5, tex_coords.y * 2.5);
+        ((noise - 0.5) * 3.0 + 0.5).max(0.0).min(1.0)
+    } else {
+        0.5
+    };
+
+    // LAYER 2: Fine turbulence
+    let turbulence = if let Some(texture) = uniforms.texture_2() {
+        let angle = pos.x.atan2(pos.z);
+        let spiral = angle * 5.0 + radial_distance * 10.0 - uniforms.time() * 2.5;
+        let turb_u = (spiral * 0.2).sin() * 0.3 + tex_coords.x * 4.0;
+        let turb_v = (spiral * 0.25).cos() * 0.3 + tex_coords.y * 4.0;
+        let noise = texture.sample_grayscale(
+            turb_u + uniforms.time() * 0.4,
+            turb_v - uniforms.time() * 0.3,
+        );
+        ((noise - 0.5) * 3.5 + 0.5).max(0.0).min(1.0)
+    } else {
+        0.5
+    };
+
+    // LAYER 3: Spiral structure
+    let angle = pos.x.atan2(pos.z);
+    let spiral_arms = 3.0;
+    let spiral_speed = 3.0 / (radial_distance.powf(1.5) + 0.2);
+    let spiral_pattern =
+        (angle * spiral_arms + uniforms.time() * spiral_speed - radial_distance * 8.0).sin();
+    let spiral_intensity = (spiral_pattern * 0.5 + 0.5).powf(0.3);
+
+    // Radial intensity (inner regions MUCH brighter)
+    let radial_intensity = (1.8 - radial_distance * 1.5).max(0.0).min(1.0);
+    let radial_boost = radial_intensity.powf(0.5) * 2.0;
+
+    // Vertical fade (thickness)
+    let vertical_pos = pos.y.abs();
+    let vertical_fade = (1.0 - (vertical_pos / 0.35).powf(1.2)).max(0.0);
+
+    // Combine layers
+    let combined = accretion_noise * 0.40 + turbulence * 0.35 + spiral_intensity * 0.25;
+
+    let temp = combined * radial_boost * 3.0;
+
+    // Interstellar color palette: Orange/amber dominant
+    let (base_r, base_g, base_b) = if temp < 0.4 {
+        // Dark red/orange (outer regions)
+        let t = temp / 0.4;
+        (0.3 + t * 0.5, 0.05 + t * 0.15, 0.0)
+    } else if temp < 0.8 {
+        // Bright orange (dominant color)
+        let t = (temp - 0.4) / 0.4;
+        (0.8 + t * 0.2, 0.2 + t * 0.4, 0.0 + t * 0.1)
+    } else if temp < 1.2 {
+        // Orange to amber
+        let t = (temp - 0.8) / 0.4;
+        (1.0, 0.6 + t * 0.3, 0.1 + t * 0.3)
+    } else if temp < 1.8 {
+        // Amber to yellow-white
+        let t = (temp - 1.2) / 0.6;
+        (1.0, 0.9 + t * 0.1, 0.4 + t * 0.4)
+    } else {
+        // Hottest regions - yellow-white
+        (1.0, 1.0, 0.8)
+    };
+
+    // Doppler shift (subtle)
+    let tangent_z = pos.x;
+    let doppler = tangent_z * 0.2;
+
+    let final_r = (base_r - doppler * 0.2).max(0.0).min(1.0);
+    let final_g = base_g;
+    let final_b = (base_b + doppler * 0.3).max(0.0).min(1.0);
+
+    // Apply all fades and brightness
+    let brightness = 2.8;
+    let total_fade = vertical_fade * inner_fade;
+
+    let r = (final_r * total_fade * brightness * 255.0)
+        .min(255.0)
+        .max(0.0) as u8;
+    let g = (final_g * total_fade * brightness * 255.0)
+        .min(255.0)
+        .max(0.0) as u8;
+    let b = (final_b * total_fade * brightness * 255.0)
         .min(255.0)
         .max(0.0) as u8;
 
