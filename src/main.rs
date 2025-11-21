@@ -98,7 +98,7 @@ fn game_loop() {
     let default_pack = load_default_pack();
     texture_manager.add_pack(default_pack);
 
-    let (objects, mut lights) = create_crystal_greenhouse();
+    let (objects, mut lights) = create_glowstone_shrine();
 
     let bvh = BVH::build(objects);
 
