@@ -125,7 +125,7 @@ pub fn render_model(
     camera: &Camera,
     mode: RenderMode,
     shader: ShaderType,
-    uniforms: &Uniforms,
+    uniforms: &Uniforms<'_>,
 ) {
     let model_matrix = create_model_matrix(translation, scale, rotation);
     let view_matrix = create_view_matrix(camera.position(), camera.target(), camera.up());
@@ -193,7 +193,7 @@ fn filled_triangle(
     v2: &TransformedVertex,
     v3: &TransformedVertex,
     shader: ShaderType,
-    uniforms: &Uniforms,
+    uniforms: &Uniforms<'_>,
 ) {
     let min_x = v1
         .screen_position

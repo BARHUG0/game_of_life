@@ -15,7 +15,7 @@ pub enum ShaderType {
 }
 
 impl ShaderType {
-    pub fn fragment_shader(&self, fragment: &Fragment, uniforms: &Uniforms) -> Option<Color> {
+    pub fn fragment_shader(&self, fragment: &Fragment, uniforms: &Uniforms<'_>) -> Option<Color> {
         match self {
             ShaderType::None => None,
             ShaderType::Rocky => Some(rocky_fragment_shader(fragment, uniforms)),
@@ -42,7 +42,7 @@ fn smooth_noise(x: f32, y: f32, z: f32) -> f32 {
 }
 
 // Rocky Planet Shader - Mars/Earth-like with continents, oceans, and weather
-fn rocky_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+fn rocky_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
     let pos = fragment.object_position(); // Use object space!
     let world_pos = fragment.world_position(); // Keep for view-dependent effects
     let normal = fragment.normal();
@@ -219,7 +219,7 @@ fn rocky_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
 }
 
 // Gas Giant Shader - Jupiter-like with complex storm systems
-fn gas_giant_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+fn gas_giant_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
     let pos = fragment.object_position(); // Use object space!
     let world_pos = fragment.world_position(); // Keep for view-dependent effects
     let normal = fragment.normal();
@@ -357,7 +357,7 @@ fn gas_giant_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color 
 }
 
 // Ringed Planet Shader - Saturn-like ice planet with prominent rings
-fn ringed_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+fn ringed_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
     let pos = fragment.object_position(); // Use object space!
     let world_pos = fragment.world_position(); // Keep for view-dependent effects
     let normal = fragment.normal();
@@ -573,7 +573,7 @@ fn ringed_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
 }
 
 // Vertex shader for ringed planet - creates ring geometry from sphere vertices
-fn ringed_vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
+fn ringed_vertex_shader(vertex: &Vertex, uniforms: &Uniforms<'_>) -> Vertex {
     let pos = vertex.position();
     let distance_from_axis = (pos.x * pos.x + pos.z * pos.z).sqrt();
     let height = pos.y.abs();
@@ -620,7 +620,7 @@ fn ringed_vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
 }
 
 // GJ 504 b - Magenta Gas Giant with deep purple swirls
-fn magenta_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+fn magenta_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
     let pos = fragment.object_position();
     let normal = fragment.normal();
 
@@ -722,7 +722,7 @@ fn magenta_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
 }
 
 // Kepler-22 b - Ocean World with deep blues and dynamic clouds
-fn water_world_fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+fn water_world_fragment_shader(fragment: &Fragment, uniforms: &Uniforms<'_>) -> Color {
     let pos = fragment.object_position();
     let world_pos = fragment.world_position();
     let normal = fragment.normal();
