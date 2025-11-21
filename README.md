@@ -2,6 +2,9 @@
 
 ## Descripción General
 
+![Side Glowstone](./img/side_glowstone.png)
+
+
 [Video de Montaje HorizonZeroCast](https://youtu.be/nJ3cDfck35o)
 
 [Glass Demo](https://youtu.be/KMkrOOd1O78)
@@ -10,9 +13,13 @@
 
 [Emmisive Material Demo](https://youtu.be/PNUJ2HY3lcA)
 
+![Front Glass](./img/front_glass.png)
+
 Este es un raytracer basado en física implementado en Rust utilizando raylib-rs para ventanas y renderizado básico. El proyecto presenta un motor de raytracing en tiempo real con aceleración BVH (Bounding Volume Hierarchy), ciclos dinámicos de día/noche y propiedades avanzadas de materiales incluyendo transparencia, refracción, reflexión y superficies emisivas. El renderizador soporta mapeo de texturas con mapas normales y especulares, sombras suaves y efectos atmosféricos.
 
 ## Características Principales
+
+![Side Tree](./img/side_tree.png)
 
 ### Ciclo Día/Noche
 - **Efectos Atmosféricos**: Transiciones con gradientes
@@ -42,6 +49,8 @@ El raytracer soporta una variedad de materiales inspirados en Minecraft y la vid
 
 ## Instalación y Ejecución
 
+![Side Mine](./img/side_mine.png)
+
 ### Prerequisitos
 - Herramientas de Rust (1.70 o más reciente)
 - Gestor de paquetes Cargo
@@ -69,6 +78,8 @@ cargo run --release
 
 ## Dependencias
 
+![Front Mine](./img/front_mine.png)
+
 ```toml
 [dependencies]
 raylib = "4.0"           # Ventanas, carga de imágenes y renderizado básico
@@ -77,6 +88,8 @@ rand = "0.8"             # Generación de números aleatorios para muestreo
 ```
 
 ## Estructura de Módulos
+
+![Front Glowstone](./img/front_glowstone.png)
 
 ```
 src/
@@ -105,6 +118,3 @@ src/
     └── optimum_realism.rs # Configuración del paquete de texturas por defecto
 ```
 
----
-
-**Nota de Rendimiento**: El renderizador logra tasas de cuadros en tiempo real en CPUs modernas multi-núcleo gracias a la aceleración BVH y renderizado paralelo. Para rendimiento óptimo, asegúrese de que el binario esté compilado en modo release con la bandera `--release`.
