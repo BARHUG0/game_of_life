@@ -1,5 +1,7 @@
 # Proyecto de Sistema Solar con Renderizado 3D
 
+[Video Demostrativo](https://youtu.be/qTf-Tj8JoR8)
+
 ## Descripción General
 
 Este proyecto implementa un renderizador 3D desde cero en Rust utilizando raylib-rs, presentando un sistema solar completo con mecánica orbital kepleriana realista. El sistema incluye un agujero negro central con disco de acreción, múltiples planetas con shaders procedurales únicos, y una nave espacial controlable. Todo el pipeline de renderizado está implementado manualmente, incluyendo transformaciones de matriz, proyección de perspectiva, rasterización de triángulos y shaders personalizados.
