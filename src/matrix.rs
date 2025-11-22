@@ -228,3 +228,37 @@ pub fn create_viewport_matrix(x: f32, y: f32, width: f32, height: f32) -> Matrix
         1.0,
     )
 }
+
+pub fn create_model_matrix_from_rotation_matrix(
+    translation: Vector3,
+    scale: f32,
+    rotation_matrix: Matrix,
+) -> Matrix {
+    // Scaling matrix
+    let scale_matrix = new_matrix4(
+        scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0, 1.0,
+    );
+
+    // Translation matrix
+    let translation_matrix = new_matrix4(
+        1.0,
+        0.0,
+        0.0,
+        translation.x,
+        0.0,
+        1.0,
+        0.0,
+        translation.y,
+        0.0,
+        0.0,
+        1.0,
+        translation.z,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    );
+
+    // Combine: Translation * Rotation * Scale
+    translation_matrix * rotation_matrix * scale_matrix
+}

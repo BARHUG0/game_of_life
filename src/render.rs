@@ -1,8 +1,8 @@
 use crate::fragment::Fragment;
 use crate::framebuffer::Framebuffer;
 use crate::matrix::{
-    create_model_matrix, create_projection_matrix, create_view_matrix, create_viewport_matrix,
-    multiply_matrix_vector4,
+    create_model_matrix, create_model_matrix_from_rotation_matrix, create_projection_matrix,
+    create_view_matrix, create_viewport_matrix, multiply_matrix_vector4,
 };
 use crate::shader::ShaderType;
 use crate::triangle::triangle;
@@ -15,6 +15,12 @@ use std::f32::consts::PI;
 pub enum RenderMode {
     Wireframe,
     Solid,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum Rotation {
+    Euler(Vector3), // Traditional pitch/yaw/roll angles
+    Matrix(Matrix), // Pre-built rotation matrix
 }
 
 pub struct Camera {
@@ -122,13 +128,20 @@ pub fn render_model(
     vertices: &[Vertex],
     translation: Vector3,
     scale: f32,
-    rotation: Vector3,
+    rotation: Rotation, // Changed from Vector3
     camera: &Camera,
     mode: RenderMode,
     shader: ShaderType,
     uniforms: &Uniforms<'_>,
 ) {
-    let model_matrix = create_model_matrix(translation, scale, rotation);
+    // Create model matrix using the new create_model_matrix_with_rotation
+    let model_matrix = match rotation {
+        Rotation::Euler(angles) => create_model_matrix(translation, scale, angles),
+        Rotation::Matrix(rot_matrix) => {
+            create_model_matrix_from_rotation_matrix(translation, scale, rot_matrix)
+        }
+    };
+
     let view_matrix = create_view_matrix(camera.position(), camera.target(), camera.up());
     let projection_matrix =
         create_projection_matrix(camera.fov(), camera.aspect(), camera.near(), camera.far());
@@ -189,6 +202,8 @@ pub fn render_model(
     }
 }
 
+// Add to render.rs - updated filled_triangle function
+
 fn filled_triangle(
     framebuffer: &mut Framebuffer,
     v1: &TransformedVertex,
@@ -197,130 +212,160 @@ fn filled_triangle(
     shader: ShaderType,
     uniforms: &Uniforms<'_>,
 ) {
+    let fb_width = framebuffer.width();
+    let fb_height = framebuffer.height();
+
+    // Clamp to screen bounds FIRST
     let min_x = v1
         .screen_position
         .x
         .min(v2.screen_position.x)
         .min(v3.screen_position.x)
-        .floor() as i32;
+        .floor()
+        .max(0.0) as i32;
+
     let min_y = v1
         .screen_position
         .y
         .min(v2.screen_position.y)
         .min(v3.screen_position.y)
-        .floor() as i32;
+        .floor()
+        .max(0.0) as i32;
+
     let max_x = v1
         .screen_position
         .x
         .max(v2.screen_position.x)
         .max(v3.screen_position.x)
-        .ceil() as i32;
+        .ceil()
+        .min(fb_width as f32) as i32;
+
     let max_y = v1
         .screen_position
         .y
         .max(v2.screen_position.y)
         .max(v3.screen_position.y)
-        .ceil() as i32;
+        .ceil()
+        .min(fb_height as f32) as i32;
 
-    for y in min_y..=max_y {
-        for x in min_x..=max_x {
-            let (w, v, u) = barycentric(
-                x as f32,
-                y as f32,
-                v1.screen_position,
-                v2.screen_position,
-                v3.screen_position,
+    // CRITICAL: Reject triangles that are too large (performance killer!)
+    let area = (max_x - min_x) * (max_y - min_y);
+    const MAX_TRIANGLE_AREA: i32 = 500_000; // ~700x700 pixels max
+
+    if area > MAX_TRIANGLE_AREA {
+        return; // Skip rendering massive triangles
+    }
+
+    // Early reject if completely outside screen
+    if max_x < 0 || max_y < 0 || min_x >= fb_width || min_y >= fb_height {
+        return;
+    }
+
+    // Pre-calculate barycentric denominator (optimization)
+    let denom = (v2.screen_position.y - v3.screen_position.y)
+        * (v1.screen_position.x - v3.screen_position.x)
+        + (v3.screen_position.x - v2.screen_position.x)
+            * (v1.screen_position.y - v3.screen_position.y);
+
+    if denom.abs() < 1e-10 {
+        return; // Degenerate triangle
+    }
+
+    let inv_denom = 1.0 / denom;
+
+    for y in min_y..max_y {
+        for x in min_x..max_x {
+            // Optimized barycentric calculation
+            let px = x as f32 + 0.5;
+            let py = y as f32 + 0.5;
+
+            let w = ((v2.screen_position.y - v3.screen_position.y) * (px - v3.screen_position.x)
+                + (v3.screen_position.x - v2.screen_position.x) * (py - v3.screen_position.y))
+                * inv_denom;
+
+            // Early rejection
+            if w < 0.0 || w > 1.0 {
+                continue;
+            }
+
+            let v = ((v3.screen_position.y - v1.screen_position.y) * (px - v3.screen_position.x)
+                + (v1.screen_position.x - v3.screen_position.x) * (py - v3.screen_position.y))
+                * inv_denom;
+
+            if v < 0.0 || v > 1.0 {
+                continue;
+            }
+
+            let u = 1.0 - w - v;
+            if u < 0.0 {
+                continue;
+            }
+
+            // Depth test
+            let depth =
+                w * v1.screen_position.z + v * v2.screen_position.z + u * v3.screen_position.z;
+            if depth >= framebuffer.get_depth(x, y) {
+                continue;
+            }
+
+            framebuffer.set_depth(x, y, depth);
+
+            // Interpolate attributes
+            let world_pos = Vector3::new(
+                w * v1.world_position.x + v * v2.world_position.x + u * v3.world_position.x,
+                w * v1.world_position.y + v * v2.world_position.y + u * v3.world_position.y,
+                w * v1.world_position.z + v * v2.world_position.z + u * v3.world_position.z,
             );
 
-            if w >= 0.0 && v >= 0.0 && u >= 0.0 {
-                if x >= 0 && y >= 0 && x < framebuffer.width() && y < framebuffer.height() {
-                    let depth = w * v1.screen_position.z
-                        + v * v2.screen_position.z
-                        + u * v3.screen_position.z;
+            let object_pos = Vector3::new(
+                w * v1.object_position.x + v * v2.object_position.x + u * v3.object_position.x,
+                w * v1.object_position.y + v * v2.object_position.y + u * v3.object_position.y,
+                w * v1.object_position.z + v * v2.object_position.z + u * v3.object_position.z,
+            );
 
-                    // Depth test - skip if fragment is behind existing pixel
-                    if depth >= framebuffer.get_depth(x, y) {
-                        continue;
-                    }
+            let normal = Vector3::new(
+                w * v1.normal.x + v * v2.normal.x + u * v3.normal.x,
+                w * v1.normal.y + v * v2.normal.y + u * v3.normal.y,
+                w * v1.normal.z + v * v2.normal.z + u * v3.normal.z,
+            );
 
-                    // Update depth buffer
-                    framebuffer.set_depth(x, y, depth);
+            let tex_coords = Vector2::new(
+                w * v1.tex_coords.x + v * v2.tex_coords.x + u * v3.tex_coords.x,
+                w * v1.tex_coords.y + v * v2.tex_coords.y + u * v3.tex_coords.y,
+            );
 
-                    // Interpolate world position
-                    let world_pos = Vector3::new(
-                        w * v1.world_position.x + v * v2.world_position.x + u * v3.world_position.x,
-                        w * v1.world_position.y + v * v2.world_position.y + u * v3.world_position.y,
-                        w * v1.world_position.z + v * v2.world_position.z + u * v3.world_position.z,
-                    );
+            let fragment = Fragment::new(
+                Vector2::new(px, py),
+                world_pos,
+                object_pos,
+                normal,
+                depth,
+                tex_coords,
+            );
 
-                    // Interpolate object position
-                    let object_pos = Vector3::new(
-                        w * v1.object_position.x
-                            + v * v2.object_position.x
-                            + u * v3.object_position.x,
-                        w * v1.object_position.y
-                            + v * v2.object_position.y
-                            + u * v3.object_position.y,
-                        w * v1.object_position.z
-                            + v * v2.object_position.z
-                            + u * v3.object_position.z,
-                    );
+            let color = if let Some(color) = shader.fragment_shader(&fragment, uniforms) {
+                color
+            } else {
+                // Default lighting (same as before)
+                let light_dir = uniforms.light_direction();
+                let n_len =
+                    (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z).sqrt();
+                let norm = Vector3::new(normal.x / n_len, normal.y / n_len, normal.z / n_len);
 
-                    let normal = Vector3::new(
-                        w * v1.normal.x + v * v2.normal.x + u * v3.normal.x,
-                        w * v1.normal.y + v * v2.normal.y + u * v3.normal.y,
-                        w * v1.normal.z + v * v2.normal.z + u * v3.normal.z,
-                    );
+                let intensity =
+                    (norm.x * light_dir.x + norm.y * light_dir.y + norm.z * light_dir.z).max(0.0);
+                let final_int = 0.3 + intensity * 0.7;
 
-                    // Interpolate texture coordinates
-                    let tex_coords = Vector2::new(
-                        w * v1.tex_coords.x + v * v2.tex_coords.x + u * v3.tex_coords.x,
-                        w * v1.tex_coords.y + v * v2.tex_coords.y + u * v3.tex_coords.y,
-                    );
+                Color::new(
+                    (0.7 * final_int * 255.0) as u8,
+                    (0.7 * final_int * 255.0) as u8,
+                    (0.7 * final_int * 255.0) as u8,
+                    255,
+                )
+            };
 
-                    let fragment = Fragment::new(
-                        Vector2::new(x as f32, y as f32),
-                        world_pos,
-                        object_pos,
-                        normal,
-                        depth,
-                        tex_coords,
-                    );
-
-                    let color = if let Some(color) = shader.fragment_shader(&fragment, uniforms) {
-                        // Use shader color
-                        color
-                    } else {
-                        // Default solid color with simple diffuse lighting
-                        let light_dir = uniforms.light_direction();
-                        let normal_length =
-                            (normal.x * normal.x + normal.y * normal.y + normal.z * normal.z)
-                                .sqrt();
-                        let normalized_normal = Vector3::new(
-                            normal.x / normal_length,
-                            normal.y / normal_length,
-                            normal.z / normal_length,
-                        );
-
-                        let light_intensity = (normalized_normal.x * light_dir.x
-                            + normalized_normal.y * light_dir.y
-                            + normalized_normal.z * light_dir.z)
-                            .max(0.0);
-
-                        let ambient = 0.3;
-                        let final_intensity = ambient + light_intensity * 0.7;
-
-                        let r = (0.7 * final_intensity * 255.0) as u8;
-                        let g = (0.7 * final_intensity * 255.0) as u8;
-                        let b = (0.7 * final_intensity * 255.0) as u8;
-
-                        Color::new(r, g, b, 255)
-                    };
-
-                    framebuffer.set_foreground_color(color);
-                    framebuffer.set_pixel(x, y);
-                }
-            }
+            framebuffer.set_foreground_color(color);
+            framebuffer.set_pixel(x, y);
         }
     }
 }
